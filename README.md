@@ -70,6 +70,12 @@ The browser loads MediaPipe Gesture Recognizer, Face Landmarker, and Pose Landma
 
 Camera frames stay in the browser. This project has no backend, analytics, recording, upload, persistence, or cloud inference path. **Stop camera** stops the media tracks and closes the vision tasks.
 
+## Repository security
+
+The Pages workflow runs tests before publishing and uses separate read-only build permissions and
+deployment permissions. Keep the `main` branch protected, restrict the `github-pages` environment
+to `main`, and review Dependabot pull requests before merging. See [SECURITY.md](SECURITY.md).
+
 ## Project layout
 
 ```text
