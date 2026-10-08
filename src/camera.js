@@ -19,8 +19,9 @@ export function createCamera(video, onUpdate, onAction) {
       stream = acquired; video.srcObject = stream; await video.play()
       onUpdate(neutral(), 'Loading hand model…')
       const { FilesetResolver, GestureRecognizer } = await import('@mediapipe/tasks-vision')
-      const vision = await FilesetResolver.forVisionTasks('/vision/wasm')
-      const model = await GestureRecognizer.createFromOptions(vision, { baseOptions: { modelAssetPath: '/vision/gesture_recognizer.task', delegate: 'CPU' }, runningMode: 'VIDEO', numHands: 1, minHandDetectionConfidence: .6, minTrackingConfidence: .6 })
+      const assetBase = import.meta.env.BASE_URL
+      const vision = await FilesetResolver.forVisionTasks(`${assetBase}vision/wasm`)
+      const model = await GestureRecognizer.createFromOptions(vision, { baseOptions: { modelAssetPath: `${assetBase}vision/gesture_recognizer.task`, delegate: 'CPU' }, runningMode: 'VIDEO', numHands: 1, minHandDetectionConfidence: .6, minTrackingConfidence: .6 })
       if (id !== generation) { model.close(); return }
       recognizer = model; lastTime = -1
       function tick(now) {

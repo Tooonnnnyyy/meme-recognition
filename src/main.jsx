@@ -3,17 +3,19 @@ import { createRoot } from 'react-dom/client'
 import { createVisionEngine } from './vision-engine'
 import './styles.css'
 
+const ASSET_BASE = import.meta.env.BASE_URL
+
 const ACTIONS = [
-  { id: 'open_mouth', label: 'Open mouth', gesture: 'Open your mouth wide', cn: '震惊张嘴', icon: '😮', image: '/reactions/grin-meme.jpeg', title: 'JAW DROP', copy: 'That escalated quickly.', tone: 'coral', key: '1', source: 'Face landmarks' },
-  { id: 'eyes_closed', label: 'Eyes closed', gesture: 'Close both eyes', cn: '闭眼', icon: '😴', image: '/reactions/eyes-pursed.jpeg', title: 'TIME OUT', copy: 'Recharging social battery.', tone: 'lavender', key: '2', source: 'Face landmarks' },
-  { id: 'wink_tilt', label: 'Think + tilt', gesture: 'Point to your temple and tilt your head', cn: '指太阳穴歪头', icon: '🤔', image: '/reactions/think-about-it.jpeg', title: 'BIG BRAIN', copy: 'Interesting choice.', tone: 'yellow', key: '3', source: 'Hand + face' },
-  { id: 'tongue_out', label: 'Tongue out', gesture: 'Stick out your tongue', cn: '吐舌头', icon: '😛', image: '/reactions/shh-character.jpeg', title: 'GOOFY MODE', copy: 'No serious thoughts found.', tone: 'pink', key: '4', source: 'Face landmarks' },
+  { id: 'open_mouth', label: 'Open mouth', gesture: 'Open your mouth wide', cn: '震惊张嘴', icon: '😮', image: `${ASSET_BASE}reactions/grin-meme.jpeg`, title: 'JAW DROP', copy: 'That escalated quickly.', tone: 'coral', key: '1', source: 'Face landmarks' },
+  { id: 'eyes_closed', label: 'Eyes closed', gesture: 'Close both eyes', cn: '闭眼', icon: '😴', image: `${ASSET_BASE}reactions/eyes-pursed.jpeg`, title: 'TIME OUT', copy: 'Recharging social battery.', tone: 'lavender', key: '2', source: 'Face landmarks' },
+  { id: 'wink_tilt', label: 'Think + tilt', gesture: 'Point to your temple and tilt your head', cn: '指太阳穴歪头', icon: '🤔', image: `${ASSET_BASE}reactions/think-about-it.jpeg`, title: 'BIG BRAIN', copy: 'Interesting choice.', tone: 'yellow', key: '3', source: 'Hand + face' },
+  { id: 'tongue_out', label: 'Tongue out', gesture: 'Stick out your tongue', cn: '吐舌头', icon: '😛', image: `${ASSET_BASE}reactions/shh-character.jpeg`, title: 'GOOFY MODE', copy: 'No serious thoughts found.', tone: 'pink', key: '4', source: 'Face landmarks' },
   { id: 'heart_hands', label: 'Heart hands', gesture: 'Touch thumbs and index fingers', cn: '双手比心', icon: '🫶', title: 'WHOLESOME', copy: 'Sending good energy.', tone: 'rose', key: '5', source: 'Hand landmarks' },
   { id: 'hand_up', label: 'Hand up', gesture: 'Raise one hand above your shoulder', cn: '举手', icon: '✋', title: 'PICK ME', copy: 'I have a question.', tone: 'mint', key: '6', source: 'Hand + pose' },
   { id: 'thumbs_up', label: 'Thumbs up', gesture: 'Show one thumbs-up', cn: '竖拇指', icon: '👍', title: 'APPROVED', copy: 'Ship it. Carefully.', tone: 'lime', key: '7', source: 'Hand landmarks' },
   { id: 'open_palm', label: 'Open palm', gesture: 'Hold one open palm', cn: '张开手掌', icon: '🖐️', title: 'HOLD UP', copy: 'Pause and recalibrate.', tone: 'blue', key: '8', source: 'Hand landmarks' },
   { id: 'cover_nose', label: 'Cover nose', gesture: 'Cover your nose with one hand', cn: '捂鼻子', icon: '🙈', title: 'SUSPICIOUS', copy: 'Something smells like scope creep.', tone: 'orange', key: '9', source: 'Hand + face' },
-  { id: 'hands_head', label: 'Hands on head', gesture: 'Put both hands on your head', cn: '双手抱头', icon: '🤯', image: '/reactions/girl-meme.jpeg', title: 'CRASHING OUT', copy: 'The demo worked yesterday.', tone: 'purple', key: '0', source: 'Pose landmarks' },
+  { id: 'hands_head', label: 'Hands on head', gesture: 'Put both hands on your head', cn: '双手抱头', icon: '🤯', image: `${ASSET_BASE}reactions/girl-meme.jpeg`, title: 'CRASHING OUT', copy: 'The demo worked yesterday.', tone: 'purple', key: '0', source: 'Pose landmarks' },
 ]
 
 function ReactionCard({ action, active }) {

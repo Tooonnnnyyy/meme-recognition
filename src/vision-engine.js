@@ -3,14 +3,15 @@ import { classifyVision, createVisionGate } from './vision-rules'
 export async function createVisionEngine(video, { onFrame, onStatus, onAction }) {
   const { FilesetResolver, FaceLandmarker, GestureRecognizer, PoseLandmarker } = await import('@mediapipe/tasks-vision')
   onStatus('Loading on-device vision models…')
-  const vision = await FilesetResolver.forVisionTasks('/vision/wasm')
+  const assetBase = import.meta.env.BASE_URL
+  const vision = await FilesetResolver.forVisionTasks(`${assetBase}vision/wasm`)
   // CPU is intentionally selected: it is available in ordinary Chrome profiles
   // and does not depend on a separate WebGL configuration or cloud service.
   const common = { baseOptions: { delegate: 'CPU' }, runningMode: 'VIDEO' }
   const [gesture, face, pose] = await Promise.all([
     GestureRecognizer.createFromOptions(vision, {
       ...common,
-      baseOptions: { ...common.baseOptions, modelAssetPath: '/vision/gesture_recognizer.task' },
+      baseOptions: { ...common.baseOptions, modelAssetPath: `${assetBase}vision/gesture_recognizer.task` },
       numHands: 2,
       minHandDetectionConfidence: 0.45,
       minHandPresenceConfidence: 0.45,
@@ -19,7 +20,7 @@ export async function createVisionEngine(video, { onFrame, onStatus, onAction })
     }),
     FaceLandmarker.createFromOptions(vision, {
       ...common,
-      baseOptions: { ...common.baseOptions, modelAssetPath: '/vision/face_landmarker.task' },
+      baseOptions: { ...common.baseOptions, modelAssetPath: `${assetBase}vision/face_landmarker.task` },
       numFaces: 1,
       outputFaceBlendshapes: true,
       minFaceDetectionConfidence: 0.45,
@@ -28,7 +29,7 @@ export async function createVisionEngine(video, { onFrame, onStatus, onAction })
     }),
     PoseLandmarker.createFromOptions(vision, {
       ...common,
-      baseOptions: { ...common.baseOptions, modelAssetPath: '/vision/pose_landmarker_lite.task' },
+      baseOptions: { ...common.baseOptions, modelAssetPath: `${assetBase}vision/pose_landmarker_lite.task` },
       numPoses: 1,
       minPoseDetectionConfidence: 0.45,
       minPosePresenceConfidence: 0.45,

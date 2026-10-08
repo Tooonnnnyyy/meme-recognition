@@ -41,6 +41,25 @@ npm test
 npm run build
 ```
 
+## Free deployment
+
+This repository includes a GitHub Actions workflow at `.github/workflows/deploy-pages.yml`.
+After enabling **Settings → Pages → Source: GitHub Actions** once in the GitHub repository,
+each push to `main` runs the tests, builds the app, and deploys it to:
+
+```text
+https://tooonnnnyyy.github.io/meme-recognition/
+```
+
+No GCP project, API key, database, or backend is required. The app is a static Vite build;
+camera access works on the HTTPS GitHub Pages URL. Vercel, Netlify, and Cloudflare Pages are
+also suitable free hosts, but their project settings should use the repository root, `npm ci`,
+`npm run build`, and `dist` as the output directory.
+
+The first Pages deployment still requires repository-owner access to enable Pages and accept
+the workflow permission prompt. That setting is a GitHub repository configuration, not a GCP
+configuration.
+
 Detailed P0 metrics, acceptance criteria, and the manual test protocol live in [docs/gesture-validation.md](docs/gesture-validation.md).
 
 ## How it works
