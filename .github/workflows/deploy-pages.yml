@@ -34,6 +34,8 @@ jobs:
         run: npm test
       - name: Check for accidental sensitive files or credentials
         run: npm run security:check
+      - name: Check the MediaPipe WASM runtime matches the installed package
+        run: npm run vision:check
       - name: Build for GitHub Pages
         run: npm run build
         env:
