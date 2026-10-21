@@ -2,9 +2,9 @@
 
 > A local-first computer-vision playground where your face, hands, and body trigger playful reaction cards.
 
-**Privacy-first · Ten actions · Built with MediaPipe**
+**Privacy-first · Ten actions · Meme lookalike · Built with MediaPipe**
 
-Gesture Meme Studio turns a webcam into an expressive controller. Hold an illustrated action, let the on-device vision layer recognize it, and see a matching meme-style reaction appear. It is an experimental interaction prototype for testing gesture clarity, responsiveness, and playful feedback.
+Gesture Meme Studio turns a webcam into an expressive controller. Hold an illustrated action, let the on-device vision layer recognize it, and see a matching meme-style reaction appear — or switch to **Meme lookalike** and find out which meme face you are making. It is an experimental interaction prototype for testing gesture clarity, responsiveness, and playful feedback.
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
 ![MediaPipe](https://img.shields.io/badge/MediaPipe-Tasks-0F9D58)
@@ -14,16 +14,23 @@ Gesture Meme Studio turns a webcam into an expressive controller. Hold an illust
 ## What it does
 
 - Detects face, hand, and pose signals from a live browser camera.
+- Runs the models in a background **Web Worker**, on the **GPU** when real graphics hardware is available and on the CPU otherwise, so the page stays responsive.
+- **Calibrates** to your resting face (2 seconds, press **C**) so mouth, eye, and head-tilt rules start from your neutral expression instead of a one-size-fits-all threshold.
+- Smooths landmark jitter with a One Euro filter and ignores body points the pose model only guessed.
 - Shows a visual line-art guide and plain-language instruction for each action.
-- Uses a stability gate and cooldown so a held pose triggers once rather than repeatedly.
-- Draws a local landmark overlay and exposes candidate action/confidence in the HUD.
+- Uses a stability gate (a steady ~0.2 s hold) and cooldown so a held pose triggers once rather than repeatedly.
+- Draws a local landmark overlay and exposes candidate, confidence, engine, and speed in the HUD.
 - Keeps keyboard and button controls as clearly labelled **simulation** tools for UI review.
 
-## Actions
+## Modes
+
+**Meme reactions** — hold one of ten poses to fire a reaction card.
 
 | Face | Hands / body |
 | --- | --- |
 | Open mouth · close both eyes · point to temple + tilt · stick out tongue | Heart hands · hand up · thumbs up · open palm · cover nose · hands on head |
+
+**Meme lookalike** — your expression is compared with every meme face in [`src/meme-library.js`](src/meme-library.js) and the closest one is shown with a match score. Start the **5-second challenge** to copy a random meme as closely as you can. Photos of real faces are read automatically; for cartoons or animals, press **Use my face** to record your own version. To add a meme, drop an image into `public/reactions/` and add one line to the library.
 
 ## Run locally
 
@@ -38,8 +45,13 @@ Open [http://127.0.0.1:4185/](http://127.0.0.1:4185/) in Chrome, select **Enable
 
 ```bash
 npm test
+npm run vision:check
 npm run build
 ```
+
+### Updating MediaPipe
+
+The WASM runtime in `public/vision/wasm/` must come from the same `@mediapipe/tasks-vision` release as the JavaScript package. After bumping the package (for example a Dependabot PR), run `npm run vision:sync` and commit the copied files. CI runs `npm run vision:check` and fails while they differ.
 
 ## Free deployment
 
@@ -64,11 +76,34 @@ Detailed P0 metrics, acceptance criteria, and the manual test protocol live in [
 
 ## How it works
 
-The browser loads MediaPipe Gesture Recognizer, Face Landmarker, and Pose Landmarker from the local `public/vision/` directory. A small rule layer maps their landmarks and blendshapes to the project’s ten action IDs. The UI requires three stable frames and a release before the same action may fire again.
+```text
+camera frame ──ImageBitmap──▶ vision worker (src/vision-worker.js)
+                               GestureRecognizer · FaceLandmarker · PoseLandmarker
+                               GPU delegate when hardware WebGL exists, else CPU
+             ◀──landmarks────┘
+main thread: One Euro smoothing → rules (+ calibrated baseline) → stability gate → UI
+                               └──────────▶ blendshape vector → cosine similarity → Meme lookalike
+```
+
+The browser loads MediaPipe Gesture Recognizer, Face Landmarker, and Pose Landmarker from the local `public/vision/` directory inside a module Web Worker. The page sends one camera frame at a time; a slow device simply processes fewer frames instead of queueing stale ones. If a worker cannot start (or fails on live frames), the same models load on the main thread instead.
+
+A small rule layer maps the smoothed landmarks and blendshapes to the project’s ten action IDs. An action must be held for three frames and at least 0.2 s, and the user must release it before the same action may fire again.
+
+Meme lookalike turns each face into 43 blendshape scores (MediaPipe’s 52 minus the neutral and eye-gaze scores) and ranks memes by cosine similarity. After calibration, the resting face is subtracted first; left/right are also compared mirrored, since people copy a photo from a mirrored preview.
+
+### Troubleshooting
+
+- The HUD **ENGINE** row shows where models run (`WORKER` or `MAIN THREAD`) and on what (`GPU` or `CPU`); **SPEED** shows processed frames per second and inference time.
+- Add `?delegate=cpu` or `?delegate=gpu` to the URL to force a backend, or `?runtime=main` to skip the worker.
+- MediaPipe needs WebGL to read camera frames. If WebGL is turned off in the browser, the camera status says so.
+
+### Known limitations
+
+- **Tongue out** only fires from the keyboard simulation: MediaPipe’s face model has no tongue blendshape, so the camera rule never scores it.
 
 ## Privacy
 
-Camera frames stay in the browser. This project has no backend, analytics, recording, upload, persistence, or cloud inference path. **Stop camera** stops the media tracks and closes the vision tasks.
+Camera frames stay in the browser. This project has no backend, analytics, recording, upload, persistence, or cloud inference path. The calibration baseline and any **Use my face** references live in memory for the current page visit only. **Stop camera** stops the media tracks and closes the vision tasks.
 
 ## Repository security
 
@@ -80,9 +115,19 @@ to `main`, and review Dependabot pull requests before merging. See [SECURITY.md]
 
 ```text
 src/                 React UI, vision engine, and gesture rules
+  vision-engine.js   Frame loop, worker/main-thread backends, smoothing, calibration
+  vision-worker.js   Background thread that runs MediaPipe
+  vision-models.js   Loads the three MediaPipe tasks (GPU → CPU fallback)
+  vision-rules.js    Landmarks → ten action scores, stability gate
+  smoothing.js       One Euro filter for landmarks and blendshapes
+  calibration.js     Neutral-face baseline (median of ~2 s)
+  lookalike.js       Expression vectors, cosine similarity, ranking
+  Lookalike.jsx      Meme lookalike panel, library, and challenge
+  meme-library.js    Meme faces used by Meme lookalike
 public/vision/       Local MediaPipe models and WASM runtime
 public/reactions/    Local reaction images
-tests/               Rule and stability-gate tests
+scripts/             Security and MediaPipe runtime checks
+tests/               Rule, smoothing, calibration, and lookalike tests
 docs/                P0 validation protocol
 ```
 
