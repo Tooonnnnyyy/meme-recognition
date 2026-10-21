@@ -8,7 +8,9 @@ function categoryScore(categories, names) {
   return category?.score || 0
 }
 
-function faceMetrics(faceResult) {
+// Raw 0–1 face signals before any per-user calibration. Roll is signed so a
+// calibrated resting head tilt can be subtracted.
+function faceSignals(faceResult) {
   const face = faceResult?.faceLandmarks?.[0]
   if (!face) return null
 
@@ -23,17 +25,42 @@ function faceMetrics(faceResult) {
   const tongue = categoryScore(blendshapes, ['tongueOut', 'tongue_out'])
   const leftEyeCenter = { x: (face[33].x + face[133].x) / 2, y: (face[33].y + face[133].y) / 2 }
   const rightEyeCenter = { x: (face[362].x + face[263].x) / 2, y: (face[362].y + face[263].y) / 2 }
-  const roll = Math.abs(Math.atan2(rightEyeCenter.y - leftEyeCenter.y, rightEyeCenter.x - leftEyeCenter.x))
 
   return {
     face,
-    nose: face[1] || face[4],
+    blendshapes,
     mouthOpen: Math.max(jawOpen, clamp((mouthOpenGeometry - 0.035) / 0.12)),
     blinkLeft: Math.max(blinkLeft, clamp((0.19 - leftEye) / 0.15)),
     blinkRight: Math.max(blinkRight, clamp((0.19 - rightEye) / 0.15)),
     tongue,
-    roll,
+    roll: Math.atan2(rightEyeCenter.y - leftEyeCenter.y, rightEyeCenter.x - leftEyeCenter.x),
   }
+}
+
+// Re-scales a signal so the user's calibrated resting value reads as 0.
+const aboveRest = (value, rest = 0) => (rest >= 0.9 ? value : clamp((value - rest) / (1 - rest)))
+
+function faceMetrics(faceResult, baseline) {
+  const signals = faceSignals(faceResult)
+  if (!signals) return null
+  const { face } = signals
+  return {
+    face,
+    nose: face[1] || face[4],
+    mouthOpen: aboveRest(signals.mouthOpen, baseline?.mouthOpen),
+    blinkLeft: aboveRest(signals.blinkLeft, baseline?.blinkLeft),
+    blinkRight: aboveRest(signals.blinkRight, baseline?.blinkRight),
+    tongue: aboveRest(signals.tongue, baseline?.tongue),
+    roll: Math.abs(signals.roll - (baseline?.roll || 0)),
+  }
+}
+
+// The neutral-face sample recorded during calibration.
+export function calibrationSignals({ faceResult }) {
+  const signals = faceSignals(faceResult)
+  if (!signals) return null
+  const { mouthOpen, blinkLeft, blinkRight, tongue, roll, blendshapes } = signals
+  return { mouthOpen, blinkLeft, blinkRight, tongue, roll, blendshapes: Object.fromEntries(blendshapes.map(item => [item.categoryName, item.score])) }
 }
 
 function handScore(result, name) {
@@ -73,12 +100,18 @@ function thinkPose(hands, face) {
   }, 0)
 }
 
+// Pose landmarks outside the frame are still returned, at guessed positions,
+// with a low visibility score (~0.3–0.5 for hidden wrists, ~0.8+ for visible
+// ones). Ignore those so a head-and-shoulders close-up cannot imply a raised
+// hand or hands on the head.
+const visible = landmark => Boolean(landmark) && (landmark.visibility === undefined || landmark.visibility >= 0.65)
+
 function poseScores(poseResult, face) {
   const pose = poseResult?.landmarks?.[0]
   if (!pose) return { handsHead: 0, handUp: 0 }
-  const nose = pose[0] || face?.nose
-  const shoulders = [pose[11], pose[12]].filter(Boolean)
-  const wrists = [pose[15], pose[16]].filter(Boolean)
+  const nose = visible(pose[0]) ? pose[0] : face?.nose
+  const shoulders = [pose[11], pose[12]].filter(visible)
+  const wrists = [pose[15], pose[16]].filter(visible)
   if (!nose || shoulders.length < 2 || wrists.length < 1) return { handsHead: 0, handUp: 0 }
   const shoulderY = (shoulders[0].y + shoulders[1].y) / 2
   const raised = wrists.filter(wrist => wrist.y < shoulderY - 0.06).length
@@ -89,9 +122,9 @@ function poseScores(poseResult, face) {
   }
 }
 
-export function classifyVision({ handResult, faceResult, poseResult }) {
+export function classifyVision({ handResult, faceResult, poseResult }, { baseline = null } = {}) {
   const hands = handResult?.landmarks || []
-  const face = faceMetrics(faceResult)
+  const face = faceMetrics(faceResult, baseline)
   const pose = poseScores(poseResult, face)
   const candidates = [
     { id: 'hands_head', score: pose.handsHead },
@@ -109,9 +142,12 @@ export function classifyVision({ handResult, faceResult, poseResult }) {
   return candidate && candidate.score >= 0.52 ? candidate : { id: null, score: 0 }
 }
 
-export function createVisionGate({ stableFrames = 3, cooldownMs = 1200 } = {}) {
+// stableMs keeps the required hold time the same when the frame rate changes:
+// three frames last ~230 ms at 13 FPS but only ~100 ms at 30 FPS.
+export function createVisionGate({ stableFrames = 3, stableMs = 0, cooldownMs = 1200 } = {}) {
   let candidate = null
   let frames = 0
+  let since = 0
   let armed = true
   let lastFired = -Infinity
   return (nextId, now = performance.now()) => {
@@ -124,8 +160,9 @@ export function createVisionGate({ stableFrames = 3, cooldownMs = 1200 } = {}) {
     if (nextId !== candidate) {
       candidate = nextId
       frames = 1
+      since = now
     } else frames += 1
-    if (armed && frames >= stableFrames && now - lastFired >= cooldownMs) {
+    if (armed && frames >= stableFrames && now - since >= stableMs && now - lastFired >= cooldownMs) {
       armed = false
       lastFired = now
       return nextId
