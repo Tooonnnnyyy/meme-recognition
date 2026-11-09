@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createVisionEngine } from './vision-engine'
+import { LookalikeLibrary, LookalikePanel, useLookalike } from './Lookalike'
 import './styles.css'
 
 const ASSET_BASE = import.meta.env.BASE_URL
@@ -16,6 +17,11 @@ const ACTIONS = [
   { id: 'open_palm', label: 'Open palm', gesture: 'Hold one open palm', cn: '张开手掌', icon: '🖐️', title: 'HOLD UP', copy: 'Pause and recalibrate.', tone: 'blue', key: '8', source: 'Hand landmarks' },
   { id: 'cover_nose', label: 'Cover nose', gesture: 'Cover your nose with one hand', cn: '捂鼻子', icon: '🙈', title: 'SUSPICIOUS', copy: 'Something smells like scope creep.', tone: 'orange', key: '9', source: 'Hand + face' },
   { id: 'hands_head', label: 'Hands on head', gesture: 'Put both hands on your head', cn: '双手抱头', icon: '🤯', image: `${ASSET_BASE}reactions/girl-meme.jpeg`, title: 'CRASHING OUT', copy: 'The demo worked yesterday.', tone: 'purple', key: '0', source: 'Pose landmarks' },
+]
+
+const MODES = [
+  { id: 'reactions', kicker: 'MODE 01', label: 'Meme reactions', copy: 'Hold one of ten poses to fire a reaction card' },
+  { id: 'lookalike', kicker: 'MODE 02', label: 'Meme lookalike', copy: 'Match your expression to a meme face, or play the 5-second challenge' },
 ]
 
 function ReactionCard({ action, active }) {
@@ -39,7 +45,7 @@ function GuideGraphic({ id }) {
 }
 
 function InstructionGuide({ actions }) {
-  return <section className="instruction-guide panel"><div className="panel-heading"><div><span className="panel-kicker">ACTION GUIDE</span><h2>Copy the pose, then hold it</h2></div><span className="log-caption">3 stable frames · local vision</span></div><div className="guide-grid">{actions.map(action => <article className="guide-card" key={action.id}><GuideGraphic id={action.id} /><div><strong>{action.label}</strong><p>{action.gesture}</p><small>{action.image ? 'Shows a meme reaction' : 'Shows a reaction card'}</small></div></article>)}</div></section>
+  return <section className="instruction-guide panel"><div className="panel-heading"><div><span className="panel-kicker">ACTION GUIDE</span><h2>Copy the pose, then hold it</h2></div><span className="log-caption">0.2 s steady hold · local vision</span></div><div className="guide-grid">{actions.map(action => <article className="guide-card" key={action.id}><GuideGraphic id={action.id} /><div><strong>{action.label}</strong><p>{action.gesture}</p><small>{action.image ? 'Shows a meme reaction' : 'Shows a reaction card'}</small></div></article>)}</div></section>
 }
 
 const HAND_CONNECTIONS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]]
@@ -83,19 +89,34 @@ function App() {
   const visionRef = useRef(null)
   const cameraGenerationRef = useRef(0)
   const soundRef = useRef(false)
+  const modeRef = useRef('reactions')
+  const baselineRef = useRef(null)
+  const frameListenersRef = useRef(new Set())
+  const statsShownAtRef = useRef(0)
+  const calibratingRef = useRef(false)
   const [cameraState, setCameraState] = useState('off')
   const [cameraMessage, setCameraMessage] = useState('Camera is off · keyboard test is ready')
   const [activeId, setActiveId] = useState(null)
   const [lastId, setLastId] = useState(null)
   const [confidence, setConfidence] = useState(0)
   const [hud, setHud] = useState(true)
-  const [calibrated, setCalibrated] = useState(false)
+  const [baseline, setBaseline] = useState(null)
+  const [calibration, setCalibration] = useState({ status: 'idle', progress: 0 })
   const [events, setEvents] = useState([])
   const [sound, setSound] = useState(false)
   const [candidate, setCandidate] = useState(null)
   const [landmarkState, setLandmarkState] = useState('WAITING')
+  const [mode, setMode] = useState('reactions')
+  const [engineStats, setEngineStats] = useState(null)
 
   const active = useMemo(() => ACTIONS.find(action => action.id === activeId) || null, [activeId])
+  const calibrated = Boolean(baseline)
+  const subscribeFrames = useCallback(listener => {
+    frameListenersRef.current.add(listener)
+    return () => frameListenersRef.current.delete(listener)
+  }, [])
+  const analyzeImages = useCallback(images => visionRef.current?.analyzeImages(images) ?? Promise.reject(new Error('Camera is off')), [])
+  const lookalike = useLookalike({ active: mode === 'lookalike', cameraState, subscribeFrames, analyzeImages })
 
   const trigger = (action, confidenceValue = 0.92, simulated = true) => {
     setActiveId(action.id)
@@ -121,14 +142,23 @@ function App() {
       setCameraState('loading')
       setCameraMessage('Camera live · loading local vision models…')
       const engine = await createVisionEngine(videoRef.current, {
+        baseline: baselineRef.current,
         onStatus: message => setCameraMessage(message),
         onFrame: frame => {
           drawVisionOverlay(overlayRef.current, frame)
           setCandidate(frame.candidate?.id ? frame.candidate : null)
           setConfidence(frame.candidate?.score || 0)
           setLandmarkState(frame.handResult?.landmarks?.length || frame.faceResult?.faceLandmarks?.length || frame.poseResult?.landmarks?.length ? 'TRACKING' : 'SEARCHING')
+          if (frame.timestamp - statsShownAtRef.current > 500) { statsShownAtRef.current = frame.timestamp; setEngineStats(frame.stats) }
+          frameListenersRef.current.forEach(listener => listener(frame))
         },
-        onAction: (id, score) => triggerId(id, score, false),
+        onAction: (id, score) => { if (modeRef.current === 'reactions') triggerId(id, score, false) },
+        onError: error => {
+          if (generation !== cameraGenerationRef.current) return
+          stopCamera()
+          setCameraState('blocked')
+          setCameraMessage(`Vision stopped · ${error.message}`)
+        },
       })
       if (generation !== cameraGenerationRef.current) { engine.stop(); return }
       visionRef.current = engine
@@ -153,7 +183,30 @@ function App() {
     setCameraMessage('Camera is off · keyboard test is ready')
     setCandidate(null)
     setLandmarkState('WAITING')
+    setEngineStats(null)
     drawVisionOverlay(overlayRef.current, {})
+  }
+
+  // Records ~2 s of a relaxed face; the median becomes the user's zero point
+  // for mouth, eye, and head-tilt rules and for Meme Lookalike. Kept in memory
+  // only, for this page visit.
+  const startCalibration = async () => {
+    const engine = visionRef.current
+    if (!engine) { setCameraMessage('Enable the camera first, then calibrate with a relaxed face'); return }
+    if (calibratingRef.current) return
+    calibratingRef.current = true
+    setCalibration({ status: 'running', progress: 0 })
+    try {
+      const measured = await engine.calibrate({ onProgress: progress => setCalibration({ status: 'running', progress }) })
+      baselineRef.current = measured
+      setBaseline(measured)
+      setCameraMessage('Calibrated · your resting face is now the zero point')
+    } catch (error) {
+      if (visionRef.current === engine) setCameraMessage(`Calibration failed · ${error.message}`)
+    } finally {
+      calibratingRef.current = false
+      setCalibration({ status: 'idle', progress: 0 })
+    }
   }
 
   useEffect(() => {
@@ -161,12 +214,16 @@ function App() {
   }, [sound])
 
   useEffect(() => {
+    modeRef.current = mode
+  }, [mode])
+
+  useEffect(() => {
     const onKeyDown = event => {
       if (event.repeat) return
       const action = ACTIONS.find(item => item.key === event.key)
-      if (action) trigger(action, 0.96, true)
+      if (action && modeRef.current === 'reactions') trigger(action, 0.96, true)
       if (event.key.toLowerCase() === 'h') setHud(value => !value)
-      if (event.key.toLowerCase() === 'c') setCalibrated(true)
+      if (event.key.toLowerCase() === 'c') startCalibration()
       if (event.key === 'Escape') setActiveId(null)
     }
     window.addEventListener('keydown', onKeyDown)
@@ -175,23 +232,27 @@ function App() {
 
   return <main className="app-shell">
     <header className="topbar">
-      <div className="brand"><span className="brand-mark">◎</span><div><strong>Gesture Meme Studio</strong><small>computer vision playground · first review build</small></div></div>
+      <div className="brand"><span className="brand-mark">◎</span><div><strong>Gesture Meme Studio</strong><small>computer vision playground · second review build</small></div></div>
       <div className="top-actions"><span className="privacy-dot" /> LOCAL ONLY <button className="ghost-button" onClick={() => setHud(value => !value)}>HUD {hud ? 'ON' : 'OFF'}</button></div>
     </header>
 
-    <section className="intro"><div><p className="eyebrow">10 ACTIONS · REAL-TIME REACTIONS</p><h1>Your face is the<br /><em>controller.</em></h1><p className="lede">Make a gesture. Get a reaction. This build uses a transparent debug layer so we can tune the computer vision before adding custom assets.</p></div><div className="review-note"><span>BUILD 01</span><strong>Split-screen / Debug HUD</strong><p>Keyboard simulation is active for review. Camera processing remains local to this browser.</p></div></section>
+    <section className="intro"><div><p className="eyebrow">10 ACTIONS · REAL-TIME REACTIONS</p><h1>Your face is the<br /><em>controller.</em></h1><p className="lede">Make a gesture. Get a reaction. This build uses a transparent debug layer so we can tune the computer vision before adding custom assets.</p></div><div className="review-note"><span>BUILD 02</span><strong>Background worker / Calibration / Lookalike</strong><p>Models run off the main thread, on the GPU when available. Keyboard simulation stays active for review. Camera processing remains local to this browser.</p></div></section>
+
+    <nav className="mode-tabs" aria-label="Studio mode">{MODES.map(item => <button key={item.id} className={`mode-tab ${mode === item.id ? 'active' : ''}`} aria-pressed={mode === item.id} onClick={() => setMode(item.id)}><span>{item.kicker}</span><strong>{item.label}</strong><small>{item.copy}</small></button>)}</nav>
 
     <section className="studio-grid">
-      <section className="reaction-panel panel"><div className="panel-heading"><div><span className="panel-kicker">REACTION OUTPUT</span><h2>Live response</h2></div><span className={`status-badge ${active ? 'fired' : ''}`}>{active ? 'EVENT FIRED' : 'WAITING'}</span></div><div className="reaction-stage"><ReactionCard action={active} active={Boolean(active)} /></div><div className="reaction-footer"><span>{active ? `Last event · ${active.label}` : 'No event yet'}</span><button className="text-button" onClick={() => setActiveId(null)}>Clear reaction ↗</button></div></section>
-      <section className="camera-panel panel"><div className="panel-heading"><div><span className="panel-kicker">CAMERA INPUT</span><h2>Vision window</h2></div><span className={`live-badge ${cameraState}`}>{cameraState === 'live' ? '● LIVE' : cameraState === 'loading' ? '● LOADING' : cameraState === 'blocked' ? '● BLOCKED' : '○ OFF'}</span></div><div className="camera-frame"><video ref={videoRef} muted playsInline /><canvas ref={overlayRef} className="vision-overlay" /><div className="camera-placeholder"><span className="camera-crosshair">＋</span><strong>{cameraState === 'live' ? 'Camera preview ready' : cameraState === 'loading' ? 'Loading local vision…' : 'Camera preview'}</strong><small>{cameraMessage}</small></div>{hud && <div className="hud"><div>FACE BOX <b>{cameraState === 'live' ? (candidate ? 'LOCKED' : 'SEARCHING') : 'STANDBY'}</b></div><div>LANDMARKS <b>{cameraState === 'live' ? landmarkState : 'WAITING'}</b></div><div>CANDIDATE <b>{candidate?.id?.replaceAll('_', ' ').toUpperCase() || '—'}</b></div><div>CONFIDENCE <b>{confidence ? confidence.toFixed(2) : '—'}</b></div><div>PROCESSING <b>LOCAL</b></div></div>}</div><div className="camera-controls"><button className="primary-button" onClick={cameraState === 'live' || cameraState === 'loading' ? stopCamera : startCamera}>{cameraState === 'live' || cameraState === 'loading' ? 'Stop camera' : 'Enable camera'}</button><button className="secondary-button" onClick={() => setCalibrated(true)}>Recalibrate · {calibrated ? 'ready' : 'C'}</button></div></section>
+      {mode === 'lookalike' ? <LookalikePanel lookalike={lookalike} cameraState={cameraState} /> : <section className="reaction-panel panel"><div className="panel-heading"><div><span className="panel-kicker">REACTION OUTPUT</span><h2>Live response</h2></div><span className={`status-badge ${active ? 'fired' : ''}`}>{active ? 'EVENT FIRED' : 'WAITING'}</span></div><div className="reaction-stage"><ReactionCard action={active} active={Boolean(active)} /></div><div className="reaction-footer"><span>{active ? `Last event · ${active.label}` : 'No event yet'}</span><button className="text-button" onClick={() => setActiveId(null)}>Clear reaction ↗</button></div></section>}
+      <section className="camera-panel panel"><div className="panel-heading"><div><span className="panel-kicker">CAMERA INPUT</span><h2>Vision window</h2></div><span className={`live-badge ${cameraState}`}>{cameraState === 'live' ? '● LIVE' : cameraState === 'loading' ? '● LOADING' : cameraState === 'blocked' ? '● BLOCKED' : '○ OFF'}</span></div><div className="camera-frame"><video ref={videoRef} muted playsInline /><canvas ref={overlayRef} className="vision-overlay" /><div className="camera-placeholder"><span className="camera-crosshair">＋</span><strong>{cameraState === 'live' ? 'Camera preview ready' : cameraState === 'loading' ? 'Loading local vision…' : 'Camera preview'}</strong><small>{cameraMessage}</small></div>{hud && <div className="hud"><div>FACE BOX <b>{cameraState === 'live' ? (candidate ? 'LOCKED' : 'SEARCHING') : 'STANDBY'}</b></div><div>LANDMARKS <b>{cameraState === 'live' ? landmarkState : 'WAITING'}</b></div><div>CANDIDATE <b>{candidate?.id?.replaceAll('_', ' ').toUpperCase() || '—'}</b></div><div>CONFIDENCE <b>{confidence ? confidence.toFixed(2) : '—'}</b></div><div>PROCESSING <b>LOCAL</b></div><div>ENGINE <b>{engineStats ? `${engineStats.runtime === 'worker' ? 'WORKER' : 'MAIN THREAD'} · ${engineStats.delegate}` : '—'}</b></div><div>SPEED <b>{engineStats ? `${Math.round(engineStats.fps)} FPS · ${Math.round(engineStats.inferenceMs)} MS` : '—'}</b></div><div>BASELINE <b>{calibrated ? 'CALIBRATED' : 'DEFAULT'}</b></div></div>}{calibration.status === 'running' && <div className="calibration-overlay"><span>CALIBRATING · RELAX YOUR FACE AND LOOK AT THE CAMERA</span><i style={{ width: `${Math.round(calibration.progress * 100)}%` }} /></div>}</div><div className="camera-controls"><button className="primary-button" onClick={cameraState === 'live' || cameraState === 'loading' ? stopCamera : startCamera}>{cameraState === 'live' || cameraState === 'loading' ? 'Stop camera' : 'Enable camera'}</button><button className="secondary-button" disabled={calibration.status === 'running'} onClick={startCalibration}>{calibration.status === 'running' ? `Calibrating… ${Math.round(calibration.progress * 100)}%` : `${calibrated ? 'Recalibrate' : 'Calibrate'} · C`}</button></div></section>
     </section>
 
+    {mode === 'lookalike' ? <LookalikeLibrary lookalike={lookalike} cameraState={cameraState} /> : <>
     <InstructionGuide actions={ACTIONS} />
-    <section className="control-strip"><div className="control-copy"><span className="panel-kicker">CONTROL DECK</span><h2>Try the reactions</h2><p>Camera actions fire after three stable frames. Keys and buttons below are simulation fallback.</p></div><div className="settings"><label><input type="checkbox" checked={sound} onChange={event => setSound(event.target.checked)} /> voice cue</label><span className="calibration-state">{calibrated ? '● CALIBRATED' : '○ NOT CALIBRATED'}</span></div><div className="action-grid">{ACTIONS.map(action => <button title={action.gesture} className={`action-button ${lastId === action.id ? 'selected' : ''}`} key={action.id} onClick={() => trigger(action)}><span className="action-key">{action.key}</span><span className="action-icon">{action.icon}</span><span><b>{action.label}</b><small>{action.gesture}</small></span><span className="action-source">{action.source} · SIM</span></button>)}</div></section>
+    <section className="control-strip"><div className="control-copy"><span className="panel-kicker">CONTROL DECK</span><h2>Try the reactions</h2><p>Camera actions fire after a steady 0.2-second hold. Keys and buttons below are simulation fallback.</p></div><div className="settings"><label><input type="checkbox" checked={sound} onChange={event => setSound(event.target.checked)} /> voice cue</label><span className="calibration-state">{calibrated ? '● CALIBRATED' : '○ NOT CALIBRATED'}</span></div><div className="action-grid">{ACTIONS.map(action => <button title={action.gesture} className={`action-button ${lastId === action.id ? 'selected' : ''}`} key={action.id} onClick={() => trigger(action)}><span className="action-key">{action.key}</span><span className="action-icon">{action.icon}</span><span><b>{action.label}</b><small>{action.gesture}</small></span><span className="action-source">{action.source} · SIM</span></button>)}</div></section>
 
-    <section className="event-log panel"><div className="panel-heading"><div><span className="panel-kicker">EVENT LOG</span><h2>Recent triggers</h2></div><span className="log-caption">5 max · cooldown 1.5s</span></div>{events.length ? <div className="event-list">{events.map(event => <div className="event-row" key={event.id}><span className="event-dot" /><strong>{event.action}</strong><span>{event.simulated ? 'keyboard / demo' : 'camera / live'}</span><time>{event.time}</time></div>)}</div> : <div className="empty-log">No triggers yet. The log will help us tune false positives.</div>}</section>
+    <section className="event-log panel"><div className="panel-heading"><div><span className="panel-kicker">EVENT LOG</span><h2>Recent triggers</h2></div><span className="log-caption">5 max · cooldown 1.2s</span></div>{events.length ? <div className="event-list">{events.map(event => <div className="event-row" key={event.id}><span className="event-dot" /><strong>{event.action}</strong><span>{event.simulated ? 'keyboard / demo' : 'camera / live'}</span><time>{event.time}</time></div>)}</div> : <div className="empty-log">No triggers yet. The log will help us tune false positives.</div>}</section>
+    </>}
 
-    <footer><span>Gesture Meme Studio · Build 01</span><span>Camera frames never leave this device.</span><span>Keys 1–0 · H HUD · C recalibrate · Esc clear</span></footer>
+    <footer><span>Gesture Meme Studio · Build 02</span><span>Camera frames never leave this device.</span><span>Keys 1–0 · H HUD · C calibrate · Esc clear</span></footer>
   </main>
 }
 

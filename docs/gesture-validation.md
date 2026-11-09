@@ -7,7 +7,7 @@
 ## P0 acceptance criteria
 
 - **Deterministic mapping:** each action ID maps to exactly one reaction. The five local meme assets currently map to `open_mouth`, `eyes_closed`, `wink_tilt`, `tongue_out`, and `hands_head`.
-- **Fast feedback:** p95 time from a stable pose to `EVENT FIRED` is ≤500 ms on the local Chrome setup. The engine samples at ~13 FPS and requires three stable frames to reduce accidental triggers.
+- **Fast feedback:** p95 time from a stable pose to `EVENT FIRED` is ≤500 ms on the local Chrome setup. The engine processes every camera frame it can keep up with (one in flight at a time) and requires three stable frames held for at least 200 ms to reduce accidental triggers.
 - **Release gate:** holding a pose fires once; the same pose cannot fire again until the user releases it. Cooldown is 1.2 seconds.
 - **Low false positives:** no more than one event during five minutes of neutral face, normal blinking, and ordinary hand movement.
 - **Model readiness:** the page loads the local WASM runtime and all three local `.task` files. A model failure is visible in the camera status rather than silently presenting a live preview.
@@ -17,7 +17,7 @@
 ## Manual test protocol
 
 1. Open `http://127.0.0.1:4185/` in Chrome and click **Enable camera**.
-2. Confirm the status changes from `LOADING` to `LIVE`, HUD `PROCESSING` is `LOCAL`, and landmarks change from `SEARCHING` to `TRACKING`.
+2. Confirm the status changes from `LOADING` to `LIVE`, HUD `PROCESSING` is `LOCAL`, landmarks change from `SEARCHING` to `TRACKING`, and `ENGINE` reads `WORKER`. Record the `SPEED` row. Press **C** with a relaxed face and confirm `BASELINE` reads `CALIBRATED`.
 3. Perform each illustrated pose for three seconds, then relax for two seconds. Record whether the expected reaction fired once, latency, and any competing reaction.
 4. Repeat the set at a nearer/farther distance and under brighter/dimmer light. Repeat the neutral five-minute test.
 5. Use keys `1–0` only to verify reaction rendering; event log must label these as `keyboard / demo`.
