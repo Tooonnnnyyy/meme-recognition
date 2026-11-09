@@ -32,6 +32,17 @@ Gesture Meme Studio turns a webcam into an expressive controller. Hold an illust
 
 **Meme lookalike** — your expression is compared with every meme face in [`src/meme-library.js`](src/meme-library.js) and the closest one is shown with a match score. Start the **5-second challenge** to copy a random meme as closely as you can. Photos of real faces are read automatically; for cartoons or animals, press **Use my face** to record your own version. To add a meme, drop an image into `public/reactions/` and add one line to the library.
 
+## Usability Copilot
+
+`research.html` turns the same on-device vision engine into a usability-testing assistant. A participant works through tasks on a website while the page records clicks, page changes, approximate gaze areas and facial movement. Afterwards it flags the moments where they probably got stuck, so a researcher reviews those instead of a whole recording.
+
+- **Participant flow:** consent, then a 1-minute calibration whose accuracy is measured on separate dots, then the tasks, then the participant downloads or deletes a results file. Gaze is used only when validation error is at most 3°; the camera is optional.
+- **Signals:** unanswered clicks, rage clicks, going round in circles between pages, timeouts and idle periods (strong or medium), plus searching gaze and held brow lowering or leaning in (weak, never used alone). Emotions are never inferred.
+- **Researcher review:** open `research.html#review`, load a session file, and confirm or reject each flagged moment with a 0–4 severity. Files are read locally.
+- **Demo:** a fictional shop in `public/research-site/` contains three planted usability problems for the demo study.
+
+Details, thresholds, the session file format and how to test your own prototype: [docs/usability-copilot.md](docs/usability-copilot.md).
+
 ## Run locally
 
 ```bash
@@ -105,6 +116,8 @@ Meme lookalike turns each face into 43 blendshape scores (MediaPipe’s 52 minus
 
 Camera frames stay in the browser. This project has no backend, analytics, recording, upload, persistence, or cloud inference path. The calibration baseline and any **Use my face** references live in memory for the current page visit only. **Stop camera** stops the media tracks and closes the vision tasks.
 
+Usability Copilot keeps the same rule: no video or face images are stored. Its session file holds timestamps, clicks, page names, gaze coordinates and two face numbers per frame (brow lowering and face size). The participant decides whether to download and share it, and can stop and delete everything at any time.
+
 ## Repository security
 
 The Pages workflow runs tests before publishing and uses separate read-only build permissions and
@@ -124,11 +137,13 @@ src/                 React UI, vision engine, and gesture rules
   lookalike.js       Expression vectors, cosine similarity, ranking
   Lookalike.jsx      Meme lookalike panel, library, and challenge
   meme-library.js    Meme faces used by Meme lookalike
+  research/          Usability Copilot (research.html): gaze, signals, recorder, UI
 public/vision/       Local MediaPipe models and WASM runtime
 public/reactions/    Local reaction images
+public/research-site/ Fictional shop used by the Usability Copilot demo study
 scripts/             Security and MediaPipe runtime checks
-tests/               Rule, smoothing, calibration, and lookalike tests
-docs/                P0 validation protocol
+tests/               Rule, smoothing, calibration, lookalike, gaze and signal tests
+docs/                P0 validation protocol, Usability Copilot guide
 ```
 
 ## License

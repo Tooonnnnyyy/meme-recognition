@@ -1,0 +1,237 @@
+import { aoiAt, detectFixations } from './fixations.js'
+
+// Friction signals and "candidate moments" computed from a recorded session.
+// Everything here is a pure function of the session file, so a session can be
+// re-scored later with new thresholds and tested without a browser.
+//
+// Session times are milliseconds since the session started. Events:
+//   click     { t, taskId, page, x, y, target: { selector, label, interactive, formField, aoi } }
+//   mutation  { t, taskId }            the page changed (DOM mutation)
+//   change    { t, taskId }            a form value changed (radio, checkbox, select)
+//   focus     { t, taskId }            a form field took focus
+//   scroll    { t, taskId, page, x, y } scroll position, for replay
+//   navigate  { t, taskId, page }
+//   activity  { t, taskId }            mouse move, key press or scroll
+// gaze: [{ t, page, x, y }] in page document coordinates
+// face: [{ t, brow, scale }]; baseline: { brow, scale } from calibration
+
+export const STRONG = 'strong'
+export const MEDIUM = 'medium'
+export const WEAK = 'weak'
+
+// Starting thresholds from industry definitions (Sprig, 2025) and the plan;
+// pilot data should replace them.
+export const DEFAULTS = {
+  deadClickMs: 3500,
+  rageClicks: 4,
+  rageWindowMs: 2000,
+  rageRadiusPx: 60,
+  pageVisits: 3,
+  idleMs: 8000,
+  searchWindowMs: 10000,
+  searchTransitions: 6,
+  browDelta: 0.15,
+  leanRatio: 1.15,
+  faceMinMs: 2000,
+  aoiMarginPx: 40,
+}
+
+const taskAt = (tasks, t) => tasks.find(task => t >= task.start && t <= (task.end ?? Infinity))?.id || null
+
+function deadClicks(session, settings) {
+  const responses = session.events.filter(event => ['mutation', 'change', 'navigate', 'focus'].includes(event.type))
+  const signals = []
+  // Form fields answer clicks natively (a select opens, a caret appears), and
+  // a click on the empty page background expects nothing.
+  session.events.filter(event => event.type === 'click' && event.target?.selector !== 'body' && !event.target?.formField).forEach(click => {
+    const task = session.tasks.find(item => item.id === click.taskId)
+    if (responses.some(response => response.t > click.t && response.t <= click.t + settings.deadClickMs)) return
+    if (task?.end != null && task.end < click.t + settings.deadClickMs) return
+    const previous = signals[signals.length - 1]
+    if (previous && previous.taskId === click.taskId && previous.detail.selector === click.target.selector && click.t - previous.end < 10000) {
+      previous.end = click.t
+      previous.count += 1
+    } else {
+      signals.push({ kind: 'dead-click', strength: STRONG, taskId: click.taskId, start: click.t, end: click.t, count: 1, detail: { selector: click.target.selector, label: click.target.label } })
+    }
+  })
+  return signals
+}
+
+function rageClicks(session, settings) {
+  const signals = []
+  const clicks = session.events.filter(event => event.type === 'click')
+  let index = 0
+  while (index < clicks.length) {
+    const first = clicks[index]
+    const burst = clicks.slice(index).filter(click => click.taskId === first.taskId && click.t - first.t <= settings.rageWindowMs && Math.hypot(click.x - first.x, click.y - first.y) <= settings.rageRadiusPx)
+    if (burst.length >= settings.rageClicks) {
+      signals.push({ kind: 'rage-click', strength: STRONG, taskId: first.taskId, start: first.t, end: burst[burst.length - 1].t, count: burst.length, detail: { label: first.target?.label } })
+      index = clicks.indexOf(burst[burst.length - 1]) + 1
+    } else index += 1
+  }
+  return signals
+}
+
+function pageLoops(session, settings) {
+  const signals = []
+  session.tasks.forEach(task => {
+    const visits = new Map()
+    const open = new Map()
+    session.events.filter(event => event.type === 'navigate' && event.taskId === task.id).forEach(event => {
+      const count = (visits.get(event.page) || 0) + 1
+      visits.set(event.page, count)
+      if (count === settings.pageVisits) {
+        const signal = { kind: 'page-loop', strength: STRONG, taskId: task.id, start: event.t, end: event.t, count, detail: { page: event.page } }
+        open.set(event.page, signal)
+        signals.push(signal)
+      } else if (count > settings.pageVisits) {
+        open.get(event.page).count = count
+        open.get(event.page).end = event.t
+      }
+    })
+  })
+  return signals
+}
+
+function timeouts(session) {
+  return session.tasks.filter(task => task.outcome === 'timeout').map(task => ({ kind: 'timeout', strength: STRONG, taskId: task.id, start: Math.max(task.start, task.end - 5000), end: task.end, count: 1, detail: {} }))
+}
+
+function idlePeriods(session, settings) {
+  const signals = []
+  session.tasks.forEach(task => {
+    const times = [task.start, ...session.events.filter(event => event.taskId === task.id && ['click', 'activity', 'navigate', 'focus', 'change', 'scroll'].includes(event.type)).map(event => event.t), task.end ?? task.start]
+    times.sort((a, b) => a - b)
+    for (let index = 1; index < times.length; index += 1) {
+      if (times[index] - times[index - 1] >= settings.idleMs) signals.push({ kind: 'idle', strength: MEDIUM, taskId: task.id, start: times[index - 1], end: times[index], count: 1, detail: { seconds: Math.round((times[index] - times[index - 1]) / 1000) } })
+    }
+  })
+  return signals
+}
+
+// Many jumps between areas with no click in between: looking for something
+// that is not where the participant expects it.
+function visualSearch(session, settings, fixations) {
+  const signals = []
+  const clicks = session.events.filter(event => event.type === 'click')
+  session.tasks.forEach(task => {
+    const inTask = fixations.filter(fixation => fixation.taskId === task.id && fixation.aoi)
+    let index = 0
+    while (index < inTask.length) {
+      const first = inTask[index]
+      const window = inTask.slice(index).filter(fixation => fixation.start - first.start <= settings.searchWindowMs)
+      const transitions = window.slice(1).filter((fixation, offset) => fixation.aoi !== window[offset].aoi).length
+      const end = window[window.length - 1].end
+      const clicked = clicks.some(click => click.t >= first.start && click.t <= end)
+      if (transitions >= settings.searchTransitions && !clicked) {
+        signals.push({ kind: 'visual-search', strength: MEDIUM, taskId: task.id, start: first.start, end, count: transitions, detail: { areas: new Set(window.map(fixation => fixation.aoi)).size } })
+        index += window.length
+      } else index += 1
+    }
+  })
+  return signals
+}
+
+// Continuous stretches (gaps under 500 ms) where the predicate holds for at
+// least minMs.
+function runs(samples, predicate, minMs) {
+  const result = []
+  let start = null
+  let last = null
+  const close = () => {
+    if (start !== null && last - start >= minMs) result.push({ start, end: last })
+    start = null
+  }
+  samples.forEach(sample => {
+    if (!predicate(sample)) { close(); return }
+    if (start !== null && sample.t - last > 500) close()
+    if (start === null) start = sample.t
+    last = sample.t
+  })
+  close()
+  return result
+}
+
+function faceSignals(session, settings) {
+  const baseline = session.baseline
+  if (!baseline || !session.face?.length) return []
+  const brow = runs(session.face, sample => sample.brow - baseline.brow >= settings.browDelta, settings.faceMinMs)
+    .map(run => ({ kind: 'brow-lowered', strength: WEAK, taskId: taskAt(session.tasks, run.start), ...run, count: 1, detail: { seconds: Math.round((run.end - run.start) / 100) / 10 } }))
+  const lean = runs(session.face, sample => sample.scale >= baseline.scale * settings.leanRatio, settings.faceMinMs)
+    .map(run => ({ kind: 'lean-in', strength: WEAK, taskId: taskAt(session.tasks, run.start), ...run, count: 1, detail: { seconds: Math.round((run.end - run.start) / 100) / 10 } }))
+  return [...brow, ...lean].filter(signal => signal.taskId)
+}
+
+// Fixations per page, labelled with their task and area of interest.
+export function sessionFixations(session, settings = DEFAULTS) {
+  if (!session.quality?.gazeEnabled || !session.gaze?.length) return []
+  const margin = Math.max(settings.aoiMarginPx, session.quality.accuracy?.meanPx || 0)
+  const pages = [...new Set(session.gaze.map(point => point.page))]
+  return pages.flatMap(page => detectFixations(session.gaze.filter(point => point.page === page)).map(fixation => ({
+    ...fixation,
+    page,
+    taskId: taskAt(session.tasks, fixation.start),
+    aoi: aoiAt(fixation, session.aois?.[page] || [], margin),
+  })))
+}
+
+export function detectSignals(session, overrides = {}) {
+  const settings = { ...DEFAULTS, ...overrides }
+  const fixations = sessionFixations(session, settings)
+  return [
+    ...deadClicks(session, settings),
+    ...rageClicks(session, settings),
+    ...pageLoops(session, settings),
+    ...timeouts(session),
+    ...idlePeriods(session, settings),
+    ...visualSearch(session, settings, fixations),
+    ...faceSignals(session, settings),
+  ].sort((a, b) => a.start - b.start)
+}
+
+// A strong signal opens a candidate on its own; a medium one needs a weak one
+// within pairWindowMs. Overlapping windows in the same task merge, and every
+// signal inside a window is kept as evidence.
+export function findCandidates(signals, { padMs = 2000, pairWindowMs = 5000 } = {}) {
+  const windows = []
+  const weak = signals.filter(signal => signal.strength === WEAK)
+  signals.forEach(signal => {
+    if (signal.strength === STRONG) windows.push({ taskId: signal.taskId, start: signal.start - padMs, end: signal.end + padMs })
+    if (signal.strength !== MEDIUM) return
+    const partner = weak.find(item => item.taskId === signal.taskId && item.start <= signal.end + pairWindowMs && item.end >= signal.start - pairWindowMs)
+    if (partner) windows.push({ taskId: signal.taskId, start: Math.min(signal.start, partner.start) - padMs, end: Math.max(signal.end, partner.end) + padMs })
+  })
+  windows.sort((a, b) => (a.taskId === b.taskId ? a.start - b.start : String(a.taskId).localeCompare(String(b.taskId))))
+  const merged = []
+  windows.forEach(window => {
+    const previous = merged[merged.length - 1]
+    if (previous && previous.taskId === window.taskId && window.start <= previous.end) previous.end = Math.max(previous.end, window.end)
+    else merged.push({ ...window, start: Math.max(0, window.start) })
+  })
+  return merged
+    .map(window => {
+      const evidence = signals.filter(signal => signal.taskId === window.taskId && signal.start <= window.end && signal.end >= window.start)
+      const strong = evidence.filter(signal => signal.strength === STRONG).length
+      const confidence = strong >= 2 || (strong === 1 && evidence.length > 1) ? 'high' : strong === 1 ? 'medium' : 'low'
+      return { ...window, signals: evidence, confidence }
+    })
+    .sort((a, b) => a.start - b.start)
+    .map((candidate, index) => ({ id: `m${index + 1}`, ...candidate }))
+}
+
+// Plain-language evidence for one signal, as shown to the researcher.
+export function describeSignal(signal) {
+  const times = signal.count > 1 ? ` ×${signal.count}` : ''
+  switch (signal.kind) {
+    case 'dead-click': return `No response to a click${times}${signal.detail.label ? ` on “${signal.detail.label}”` : ''}`
+    case 'rage-click': return `${signal.count} rapid clicks${signal.detail.label ? ` on “${signal.detail.label}”` : ''}`
+    case 'page-loop': return `Returned to ${signal.detail.page} ${signal.count - 1} times`
+    case 'timeout': return 'Ran out of time on the task'
+    case 'idle': return `No input for ${signal.detail.seconds} s`
+    case 'visual-search': return `Looked across ${signal.detail.areas} areas (${signal.count} jumps) without clicking`
+    case 'brow-lowered': return `Brow lowered for ${signal.detail.seconds} s`
+    case 'lean-in': return `Leaned towards the screen for ${signal.detail.seconds} s`
+    default: return signal.kind
+  }
+}
