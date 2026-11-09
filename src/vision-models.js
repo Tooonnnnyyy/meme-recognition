@@ -34,20 +34,25 @@ const taskOptions = (modelBase, delegate) => ({
   },
 })
 
-async function createTasks(fileset, modelBase, delegate) {
+const ALL_MODELS = { gesture: true, face: true, pose: true }
+
+// `models` picks which tasks to load, e.g. { face: true } for a page that only
+// needs the face; skipped tasks cost no download, memory or inference time.
+async function createTasks(fileset, modelBase, delegate, models = ALL_MODELS) {
   const options = taskOptions(modelBase, delegate)
-  const settled = await Promise.allSettled([
-    GestureRecognizer.createFromOptions(fileset, options.gesture),
-    FaceLandmarker.createFromOptions(fileset, options.face),
-    PoseLandmarker.createFromOptions(fileset, options.pose),
-  ])
+  const factories = {
+    gesture: () => GestureRecognizer.createFromOptions(fileset, options.gesture),
+    face: () => FaceLandmarker.createFromOptions(fileset, options.face),
+    pose: () => PoseLandmarker.createFromOptions(fileset, options.pose),
+  }
+  const names = Object.keys(factories).filter(name => models[name])
+  const settled = await Promise.allSettled(names.map(name => factories[name]()))
   const failure = settled.find(item => item.status === 'rejected')
   if (failure) {
     settled.forEach(item => item.status === 'fulfilled' && item.value.close())
     throw failure.reason
   }
-  const [gesture, face, pose] = settled.map(item => item.value)
-  return { gesture, face, pose }
+  return Object.fromEntries(names.map((name, index) => [name, settled[index].value]))
 }
 
 const closeTasks = tasks => tasks && Object.values(tasks).forEach(task => task.close())
@@ -77,13 +82,13 @@ function blankFrame() {
 
 // Copies results into plain objects so they survive postMessage unchanged.
 function runTasks(tasks, image, timestamp) {
-  const hand = tasks.gesture.recognizeForVideo(image, timestamp)
-  const face = tasks.face.detectForVideo(image, timestamp)
-  const pose = tasks.pose.detectForVideo(image, timestamp)
+  const hand = tasks.gesture?.recognizeForVideo(image, timestamp)
+  const face = tasks.face?.detectForVideo(image, timestamp)
+  const pose = tasks.pose?.detectForVideo(image, timestamp)
   return {
-    hand: { landmarks: hand.landmarks, worldLandmarks: hand.worldLandmarks, handedness: hand.handedness, gestures: hand.gestures },
-    face: { faceLandmarks: face.faceLandmarks, faceBlendshapes: face.faceBlendshapes },
-    pose: { landmarks: pose.landmarks, worldLandmarks: pose.worldLandmarks },
+    hand: { landmarks: hand?.landmarks || [], worldLandmarks: hand?.worldLandmarks || [], handedness: hand?.handedness || [], gestures: hand?.gestures || [] },
+    face: { faceLandmarks: face?.faceLandmarks || [], faceBlendshapes: face?.faceBlendshapes || [] },
+    pose: { landmarks: pose?.landmarks || [], worldLandmarks: pose?.worldLandmarks || [] },
   }
 }
 
@@ -100,7 +105,7 @@ async function pinModuleFactory(loaderUrl) {
 // delegate: 'auto' tries the GPU first (faster on real graphics hardware) and
 // uses the CPU when WebGL is only emulated, or when the GPU cannot create the
 // tasks or fails on a warm-up frame.
-export async function loadVisionModels({ wasmBase, modelBase, moduleLoader = false, delegate = 'auto', onStatus = () => {} }) {
+export async function loadVisionModels({ wasmBase, modelBase, moduleLoader = false, delegate = 'auto', models = ALL_MODELS, onStatus = () => {} }) {
   const fileset = await FilesetResolver.forVisionTasks(wasmBase, moduleLoader)
   if (moduleLoader) await pinModuleFactory(fileset.wasmLoaderPath)
   let tasks = null
@@ -115,7 +120,7 @@ export async function loadVisionModels({ wasmBase, modelBase, moduleLoader = fal
     for (const candidate of order) {
       let created = null
       try {
-        created = await createTasks(fileset, modelBase, candidate)
+        created = await createTasks(fileset, modelBase, candidate, models)
         // A GPU can create tasks and still fail on its first frame, so prove it
         // works before committing to it.
         if (candidate === 'GPU') {
