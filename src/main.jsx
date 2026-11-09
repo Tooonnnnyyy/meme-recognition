@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createVisionEngine } from './vision-engine'
 import { LookalikeLibrary, LookalikePanel, useLookalike } from './Lookalike'
+import { ThemeToggle } from './ThemeToggle'
 import './styles.css'
 
 const ASSET_BASE = import.meta.env.BASE_URL
@@ -233,7 +234,7 @@ function App() {
   return <main className="app-shell">
     <header className="topbar">
       <div className="brand"><span className="brand-mark">◎</span><div><strong>Gesture Meme Studio</strong><small>computer vision playground · second review build</small></div></div>
-      <div className="top-actions"><span className="privacy-dot" /> LOCAL ONLY <button className="ghost-button" onClick={() => setHud(value => !value)}>HUD {hud ? 'ON' : 'OFF'}</button></div>
+      <div className="top-actions"><span className="privacy-dot" /> LOCAL ONLY <ThemeToggle /><button className="ghost-button" onClick={() => setHud(value => !value)}>HUD {hud ? 'ON' : 'OFF'}</button></div>
     </header>
 
     <section className="intro"><div><p className="eyebrow">10 ACTIONS · REAL-TIME REACTIONS</p><h1>Your face is the<br /><em>controller.</em></h1><p className="lede">Make a gesture. Get a reaction. This build uses a transparent debug layer so we can tune the computer vision before adding custom assets.</p></div><div className="review-note"><span>BUILD 02</span><strong>Background worker / Calibration / Lookalike</strong><p>Models run off the main thread, on the GPU when available. Keyboard simulation stays active for review. Camera processing remains local to this browser.</p></div></section>

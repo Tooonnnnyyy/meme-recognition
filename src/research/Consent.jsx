@@ -1,11 +1,12 @@
 import React, { useState } from 'react'
+import { ThemeToggle } from '../ThemeToggle'
 
 export function Consent({ study, participant, onBegin }) {
   const [camera, setCamera] = useState(true)
   const [agreed, setAgreed] = useState({ read: false, withdraw: false })
   const ready = agreed.read && agreed.withdraw
   return <div className="screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study · {study.title} · participant {participant}</small></div></div><span className="chip live"><span className="dot" />PROCESSED ON THIS DEVICE</span></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study · {study.title} · participant {participant}</small></div></div><div className="actions"><span className="chip live"><span className="dot" />PROCESSED ON THIS DEVICE</span><ThemeToggle /></div></header>
     <main className="consent">
       <section>
         <span className="kicker">Step 1 of 3 · Consent</span>

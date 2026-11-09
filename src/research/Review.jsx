@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { describeSignal, detectSignals, findCandidates, sessionFixations, STRONG, MEDIUM, WEAK } from './signals'
+import { ThemeToggle } from '../ThemeToggle'
 
 const BASE = import.meta.env.BASE_URL
 const clock = ms => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
@@ -50,6 +51,7 @@ function Replay({ session, candidate, fixations }) {
     <div className="replay-stage" style={{ width: `${viewport.width}px`, height: `${viewport.height}px`, transform: `scale(${scale})` }}>
       <iframe ref={frameRef} key={`${view.page}-${candidate.id}`} title="Page at this moment" tabIndex={-1} src={`${BASE}${session.study.siteBase}${view.page}.html`} onLoad={() => frameRef.current?.contentWindow?.scrollTo(view.scrollX, view.scrollY)} />
       <svg className="replay-overlay" width={viewport.width} height={viewport.height} aria-hidden="true">
+        {/* heat spots sit on the tested website, which is light in both themes */}
         <defs><radialGradient id="heat-spot"><stop offset="0" stopColor="#ff5a28" stopOpacity=".5" /><stop offset="1" stopColor="#ff5a28" stopOpacity="0" /></radialGradient></defs>
         {spots.map((spot, index) => <circle key={index} cx={spot.x - view.scrollX} cy={spot.y - view.scrollY} r={Math.min(70, 18 + (spot.end - spot.start) / 12)} className="heat" fill="url(#heat-spot)" />)}
         {clicks.map((click, index) => <g key={index} className="click-mark"><circle cx={click.x - view.scrollX} cy={click.y - view.scrollY} r="11" /><text x={click.x - view.scrollX + 14} y={click.y - view.scrollY - 10}>{index + 1}</text></g>)}
@@ -116,7 +118,7 @@ export function Review({ initialSession }) {
   const picker = <label className="btn ghost file-button" htmlFor="session-file">{session ? 'Load another file' : 'Choose a session file'}<input id="session-file" type="file" accept="application/json,.json" onChange={event => event.target.files[0] && load(event.target.files[0])} /></label>
 
   if (!session) return <div className="screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Researcher review</small></div></div></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Researcher review</small></div></div><ThemeToggle /></header>
     <main className="center-note"><span className="kicker">Review a session</span><h2>Load a session file</h2><p className="muted">Participants download a results file at the end of a session. Load it here to see flagged moments. Files are read in this browser and not uploaded.</p>{picker}{error && <p className="warning">{error}</p>}</main>
   </div>
 
@@ -126,7 +128,7 @@ export function Review({ initialSession }) {
   const reviewed = analysis.candidates.filter(candidate => ['confirmed', 'rejected'].includes(reviews[candidate.id]?.status)).length
 
   return <div className="screen review-screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Session review · {session.participant}</strong><small>{session.study.title} · {session.tasks.length} tasks · {clock(analysis.duration)}</small></div></div><div className="actions">{picker}<button className="btn secondary" onClick={exportFile}>Export reviewed file</button></div></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Session review · {session.participant}</strong><small>{session.study.title} · {session.tasks.length} tasks · {clock(analysis.duration)}</small></div></div><div className="actions">{picker}<button className="btn secondary" onClick={exportFile}>Export reviewed file</button><ThemeToggle /></div></header>
     {error && <p className="warning banner">{error}</p>}
     <div className="review">
       <section className="stage">
