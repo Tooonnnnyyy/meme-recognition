@@ -97,9 +97,9 @@ function webglAvailable() {
   }
 }
 
-export async function createVisionEngine(video, { onFrame, onStatus, onAction, onError = () => {}, baseline: initialBaseline = null }) {
+export async function createVisionEngine(video, { onFrame, onStatus, onAction = () => {}, onError = () => {}, baseline: initialBaseline = null, models }) {
   const overrides = engineOverrides()
-  const options = { wasmBase: assetUrl('vision/wasm'), modelBase: assetUrl('vision/'), delegate: overrides.delegate }
+  const options = { wasmBase: assetUrl('vision/wasm'), modelBase: assetUrl('vision/'), delegate: overrides.delegate, ...(models && { models }) }
   let backend
   if (typeof Worker !== 'undefined' && overrides.runtime !== 'main' && webglAvailable()) {
     onStatus('Loading on-device vision models in a background worker…')

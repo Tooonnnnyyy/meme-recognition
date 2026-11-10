@@ -16,6 +16,8 @@ const devStyleCsp = {
 export default defineConfig({
   base: process.env.VITE_BASE || '/',
   plugins: [devStyleCsp],
+  // Two pages: the meme studio and the Usability Copilot research tool.
+  build: { rollupOptions: { input: { main: 'index.html', research: 'research.html' } } },
   // The vision worker is a module worker (MediaPipe loads its ES-module WASM
   // runtime inside it), so it is bundled as ES rather than the default IIFE.
   worker: { format: 'es' },
