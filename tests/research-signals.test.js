@@ -45,16 +45,46 @@ test('a response to the next click does not answer an earlier dead click', () =>
   const radio = { selector: 'label', label: 'Store credit', interactive: true }
   const session = base({ events: [
     { type: 'click', t: 5000, taskId: 'T1', x: 10, y: 10, target: submit },
+    { type: 'click', t: 5400, taskId: 'T1', x: 10, y: 10, target: submit },
     { type: 'click', t: 7000, taskId: 'T1', x: 10, y: 80, target: radio },
     { type: 'change', t: 7010, taskId: 'T1' },
   ] })
   const dead = detectSignals(session).filter(signal => signal.kind === 'dead-click')
-  assert.equal(dead.length, 1)
-  assert.equal(dead[0].detail.label, 'Submit return')
+  assert.deepEqual(dead.map(signal => [signal.detail.label, signal.count]), [['Submit return', 2]])
+})
+
+test('pressing the same element again leaves its response window open', () => {
+  const details = { selector: 'a.button.secondary', label: 'View details', interactive: true }
+  const session = base({ events: [
+    { type: 'click', t: 451, taskId: 'T1', x: 300, y: 10, target: details },
+    { type: 'focus', t: 451, taskId: 'T1', selector: 'a.button.secondary' },
+    { type: 'click', t: 575, taskId: 'T1', x: 300, y: 10, target: details },
+    { type: 'navigate', t: 612, taskId: 'T1', page: 'order-48213' },
+  ] })
+  assert.ok(!kinds(detectSignals(session)).includes('dead-click'))
+})
+
+test('a response in the press\'s own millisecond counts if it was recorded after the press', () => {
+  const details = { selector: 'a.button.secondary', label: 'View details', interactive: true }
+  const press = { type: 'click', t: 41104, taskId: 'T1', x: 10, y: 10, target: button }
+  const change = { type: 'mutation', t: 41104, taskId: 'T1' }
+  const rest = [{ type: 'focus', t: 41104, taskId: 'T1', selector: 'button.track' }, { type: 'click', t: 42000, taskId: 'T1', x: 300, y: 10, target: details }, { type: 'navigate', t: 42100, taskId: 'T1', page: 'order' }]
+  assert.ok(!kinds(detectSignals(base({ events: [press, change, ...rest] }))).includes('dead-click'))
+  const dead = detectSignals(base({ events: [change, press, ...rest] })).filter(signal => signal.kind === 'dead-click')
+  assert.deepEqual(dead.map(signal => signal.detail.label), ['Track package'])
+})
+
+test('clicks between tasks are not judged, and a click with no target does not break detection', () => {
+  const tasks = [{ id: 'T1', start: 0, end: 5000, outcome: 'success' }]
+  const between = [0, 200, 400, 600].map(t => ({ type: 'click', t: 6000 + t, taskId: null, x: 10, y: 10, target: button }))
+  assert.deepEqual(kinds(detectSignals(base({ tasks, events: between }))), [])
+  const bare = detectSignals(base({ tasks, events: [{ type: 'click', t: 1000, taskId: 'T1', x: 1, y: 1 }] }))
+  assert.deepEqual(bare.map(describeSignal), ['No response to a click'])
 })
 
 test('a dead click is still judged when the next click ends the task', () => {
-  const title = { selector: 'b', label: 'Ridgeline hiking boots', interactive: false }
+  // The recorder gives text that is not a control no label, only its area.
+  const title = { selector: 'b', label: '', interactive: false, aoi: 'order-list' }
   const details = { selector: 'a.button.secondary', label: 'View details', interactive: true }
   const session = base({ tasks: [{ id: 'T1', start: 0, end: 6600, outcome: 'success' }], events: [
     { type: 'click', t: 5000, taskId: 'T1', x: 10, y: 10, target: title },
@@ -62,7 +92,36 @@ test('a dead click is still judged when the next click ends the task', () => {
     { type: 'navigate', t: 6600, taskId: 'T1', page: 'order' },
   ] })
   const dead = detectSignals(session).filter(signal => signal.kind === 'dead-click')
-  assert.deepEqual(dead.map(signal => signal.detail.label), ['Ridgeline hiking boots'])
+  assert.deepEqual(dead.map(describeSignal), ['No response to a click in the order-list area'])
+})
+
+test('a click on another element with the same selector still closes the window', () => {
+  // The demo has three 'Track package' buttons sharing one selector.
+  const track = { selector: 'button', label: 'Track package', interactive: true }
+  const other = { selector: 'button', label: 'Start return', interactive: true }
+  const dead = position => detectSignals(base({ events: [
+    { type: 'click', t: 5000, taskId: 'T1', x: 100, y: 100, target: track },
+    { type: 'click', t: 6000, taskId: 'T1', ...position },
+    { type: 'mutation', t: 6010, taskId: 'T1' },
+  ] })).filter(signal => signal.kind === 'dead-click')
+  assert.equal(dead({ x: 100, y: 400, target: track }).length, 1, 'same selector and label, far away')
+  assert.equal(dead({ x: 110, y: 100, target: other }).length, 1, 'same selector, other label')
+  assert.equal(dead({ x: 110, y: 100, target: track }).length, 0, 'a second press on the same button')
+})
+
+test('the change of a field left by the press does not answer it; a label\'s own field does', () => {
+  const submit = { selector: 'button#submit-return', label: 'Submit return', interactive: true }
+  const policy = { selector: 'label.policy', label: 'I accept the returns policy', interactive: true, controls: 'input#policy' }
+  const session = base({ events: [
+    // Typing in a field, then pressing a disabled button: the field's change
+    // fires on the press, as the field loses focus.
+    { type: 'click', t: 5000, taskId: 'T1', x: 100, y: 100, target: submit },
+    { type: 'change', t: 5000, taskId: 'T1', selector: 'textarea#details' },
+    { type: 'click', t: 12000, taskId: 'T1', x: 100, y: 300, target: policy },
+    { type: 'change', t: 12001, taskId: 'T1', selector: 'input#policy' },
+  ] })
+  const dead = detectSignals(session).filter(signal => signal.kind === 'dead-click')
+  assert.deepEqual(dead.map(signal => signal.detail.label), ['Submit return'])
 })
 
 test('a button taking focus on its own press is not a response; focus elsewhere is', () => {
@@ -132,6 +191,16 @@ test('jumping between many areas without clicking is visual search', () => {
   const search = detectSignals(session).filter(signal => signal.kind === 'visual-search')
   assert.equal(search.length, 1)
   assert.equal(search[0].detail.areas, 4)
+})
+
+test('gaze flickering between two areas closer than the gaze error is not visual search', () => {
+  // A button 15 px under a radio group: staring at it, noise flips the label.
+  const aois = { returns: [{ id: 'refund-method', rect: { x: 0, y: 0, width: 300, height: 100 } }, { id: 'submit-return', rect: { x: 0, y: 115, width: 160, height: 40 } }] }
+  const gaze = []
+  for (let hop = 0; hop < 12; hop += 1) for (let frame = 0; frame < 6; frame += 1) gaze.push({ t: 1000 + hop * 400 + frame * 40, page: 'returns', x: hop % 2 ? 140 : 20, y: hop % 2 ? 135 : 40 })
+  const session = base({ gaze, aois, quality: { gazeEnabled: true, accuracy: { meanPx: 60 } }, events: [{ type: 'activity', t: 1000, taskId: 'T1' }, { type: 'activity', t: 6000, taskId: 'T1' }] })
+  assert.ok(sessionFixations(session).length >= 10)
+  assert.deepEqual(kinds(detectSignals(session)).filter(kind => kind === 'visual-search'), [])
 })
 
 test('fixations come out in time order across pages, so visual search never ends before it starts', () => {

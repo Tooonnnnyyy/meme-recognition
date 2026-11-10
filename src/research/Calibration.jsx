@@ -94,7 +94,7 @@ export function Calibration({ subscribe, aspect, onDone }) {
     render()
   }
   // null when too few face frames were seen; the recorder then takes the
-  // baseline from the first task frames.
+  // baseline from the first face frames of the tasks (recordFace).
   const baseline = () => {
     const { brow, scale } = state.current
     return brow.length >= BASELINE_SAMPLES ? { brow: median(brow), scale: median(scale) } : null
@@ -110,11 +110,16 @@ export function Calibration({ subscribe, aspect, onDone }) {
     const canRetry = current.attempt < MAX_ATTEMPTS
     const percent = Math.min(100, (accuracy.meanDegrees / (GAZE_THRESHOLD_DEGREES * 1.5)) * 100)
     const tip = (GAZE_THRESHOLD_DEGREES / (GAZE_THRESHOLD_DEGREES * 1.5)) * 100
+    // Error lines go under the card. Crosses and estimates go over its
+    // background but under its text, so the card never hides one (a poor fit
+    // puts the estimates in the middle, where the card is).
     return <div className="calibration is-result">
       <svg className="vectors" width="100%" height="100%" aria-hidden="true">
+        {accuracy.points.map(({ target, estimate }, index) => <line key={index} x1={target.x} y1={target.y} x2={estimate.x} y2={estimate.y} className="error" />)}
+      </svg>
+      <svg className="vectors markers" width="100%" height="100%" aria-hidden="true">
         {accuracy.points.map(({ target, estimate }, index) => <g key={index}>
           <path d={`M${target.x - 12} ${target.y}h24M${target.x} ${target.y - 12}v24`} className="cross" />
-          <line x1={target.x} y1={target.y} x2={estimate.x} y2={estimate.y} className="error" />
           <circle cx={estimate.x} cy={estimate.y} r="5" className="estimate" />
         </g>)}
       </svg>

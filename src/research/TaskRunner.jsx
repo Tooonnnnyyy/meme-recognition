@@ -138,13 +138,14 @@ export function Finished({ session, saved, onSaved, onReview, onDelete }) {
     setTimeout(() => URL.revokeObjectURL(link.href), 1000)
     onSaved()
   }
-  const camera = session.gaze.length > 0 || session.face.length > 0
+  // Names only the camera data the file really has.
+  const camera = [session.gaze.length > 0 && 'estimates of where you looked', (session.face.length > 0 || session.baseline) && 'face movement as numbers', session.quality.accuracy && 'your calibration accuracy'].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' and $1')
   return <div className="screen">
     <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study · {session.study.title} · participant {session.participant}</small></div></div><div className="actions"><span className="chip">CAMERA OFF</span><ThemeToggle /></div></header>
     <main className="finished">
       <span className="kicker">Step 3 of 3 · Finished</span>
       <h1>Thank you</h1>
-      <p className="lede">The camera is off. Your results file lists your clicks and what you clicked, the pages you saw, your scrolling, and task times and outcomes{camera ? ', plus estimates of where you looked and face movement as numbers' : ''}. It has no video, no images of you and nothing you typed.</p>
+      <p className="lede">The camera is off. Your results file lists your clicks and what you clicked, the pages you saw, your scrolling, the times you moved the mouse or pressed keys, and task times and outcomes{camera && `, plus ${camera}`}. It has no video, no images of you, nothing you typed into fields, and not which keys you pressed.</p>
       <div className="panel outcome-list">
         {session.tasks.map(task => <div key={task.id} className="outcome"><span className="mono">{task.id}</span><span>{task.prompt}</span><span className="muted">{OUTCOME_LABELS[task.outcome]}</span><span className="mono">{clock(task.end - task.start)}</span></div>)}
       </div>

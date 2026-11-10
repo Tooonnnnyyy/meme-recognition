@@ -36,8 +36,9 @@ const isRecord = value => value !== null && typeof value === 'object' && !Array.
 const optional = check => value => value == null || check(value)
 const listOf = check => value => Array.isArray(value) && value.every(item => isRecord(item) && check(item))
 // The site folder and page names become the replay frame's URL, so they must
-// stay inside the site.
-const isPath = value => isText(value) && !/^\/|\.\.|:|\\|\/\//.test(value)
+// stay inside the site: no '..', also not encoded or split by a tab or newline
+// (the URL parser drops those), and no encoded slash a server may decode.
+const isPath = value => isText(value) && !/^\/|\.\.|:|\\|\/\/|%2[ef]|%5c|[\t\n\r]/i.test(value)
 const isAccuracy = accuracy => isRecord(accuracy) && isNumber(accuracy.meanPx) && isNumber(accuracy.meanDegrees)
 const EVENT_FIELDS = {
   click: event => isPath(event.page) && isNumber(event.x) && isNumber(event.y) && isRecord(event.target) && isText(event.target.selector),
@@ -50,6 +51,7 @@ const FIELDS = {
   viewport: optional(viewport => isRecord(viewport) && isNumber(viewport.width) && isNumber(viewport.height)),
   quality: quality => isRecord(quality) && typeof quality.gazeEnabled === 'boolean' && isNumber(quality.frames) && isNumber(quality.faceFrames)
     && optional(listOf(check => isNumber(check.errorPx)))(quality.driftChecks)
+    && optional(lost => isRecord(lost) && isNumber(lost.t) && optional(isText)(lost.taskId) && optional(isText)(lost.reason))(quality.cameraLost)
     && (quality.gazeEnabled ? isAccuracy : optional(isAccuracy))(quality.accuracy),
   baseline: optional(baseline => isRecord(baseline) && isNumber(baseline.brow) && isNumber(baseline.scale)),
   tasks: listOf(task => isText(task.id) && isNumber(task.start) && optional(isNumber)(task.end) && optional(isText)(task.outcome) && optional(isText)(task.prompt)),
@@ -73,6 +75,15 @@ function readSession(text) {
 // on screen.
 const opened = session => ({ session, analysis: analyze(session) })
 
+// The replay frame's address, resolved as the frame would resolve it, or null
+// if it leaves the study site in a way isPath did not foresee.
+function replaySrc(session, page) {
+  const resolve = path => new URL(path, location.href)
+  const site = resolve(`${BASE}${session.study.siteBase}`)
+  const url = resolve(`${BASE}${session.study.siteBase}${page}.html`)
+  return url.origin === location.origin && site.pathname.startsWith(resolve(BASE).pathname) && url.pathname.startsWith(site.pathname) ? url.href : null
+}
+
 // Keeps a rendering error in one file from blanking the page. It sits below
 // Review, so the reviews held there survive and can still be exported.
 class Guard extends React.Component {
@@ -93,17 +104,20 @@ function Replay({ session, candidate, fixations }) {
     return () => observer.disconnect()
   }, [])
   if (!view) return <div className="replay empty" ref={boxRef}><p className="muted">No page was open at this moment.</p></div>
+  const src = replaySrc(session, view.page)
+  if (!src) return <div className="replay empty" ref={boxRef}><p className="muted">This page is outside the study site, so it is not shown.</p></div>
   // The frame scrolls only when it loads. With the session in its key, another
   // file's moment on the same page loads it afresh instead of keeping the old
   // scroll position.
   const frameKey = `${session.participant}-${session.startedAt}-${view.page}-${candidate.id}`
+  const lost = session.quality.cameraLost
   const scale = width / viewport.width
   const inWindow = item => item.page === view.page && item.t >= candidate.start && item.t <= candidate.end
   const spots = fixations.filter(fixation => fixation.page === view.page && fixation.end >= candidate.start && fixation.start <= candidate.end)
   const clicks = session.events.filter(event => event.type === 'click' && inWindow(event))
   return <div className="replay" ref={boxRef} style={{ height: `${viewport.height * scale}px` }}>
     <div className="replay-stage" style={{ width: `${viewport.width}px`, height: `${viewport.height}px`, transform: `scale(${scale})` }}>
-      <iframe ref={frameRef} key={frameKey} title="Page at this moment" tabIndex={-1} src={`${BASE}${session.study.siteBase}${view.page}.html`} onLoad={() => frameRef.current?.contentWindow?.scrollTo(view.scrollX, view.scrollY)} />
+      <iframe ref={frameRef} key={frameKey} title="Page at this moment" tabIndex={-1} src={src} onLoad={() => frameRef.current?.contentWindow?.scrollTo(view.scrollX, view.scrollY)} />
       <svg className="replay-overlay" width={viewport.width} height={viewport.height} aria-hidden="true">
         {/* heat spots sit on the tested website, which is light in both themes */}
         <defs><radialGradient id="heat-spot"><stop offset="0" stopColor="#ff5a28" stopOpacity=".5" /><stop offset="1" stopColor="#ff5a28" stopOpacity="0" /></radialGradient></defs>
@@ -111,7 +125,7 @@ function Replay({ session, candidate, fixations }) {
         {clicks.map((click, index) => <g key={index} className="click-mark"><circle cx={click.x - view.scrollX} cy={click.y - view.scrollY} r="11" /><text x={click.x - view.scrollX + 14} y={click.y - view.scrollY - 10}>{index + 1}</text></g>)}
       </svg>
     </div>
-    <span className="chip replay-tag">{view.page} · {clock(candidate.start)}–{clock(candidate.end)} · {session.quality.gazeEnabled ? `${spots.length} fixations` : 'gaze off'} · {clicks.length} clicks</span>
+    <span className="chip replay-tag">{view.page} · {clock(candidate.start)}–{clock(candidate.end)} · {!session.quality.gazeEnabled ? 'gaze off' : lost && candidate.start >= lost.t ? 'camera lost' : `${spots.length} fixations`} · {clicks.length} clicks</span>
   </div>
 }
 
@@ -144,6 +158,9 @@ function SessionView({ session, analysis, reviews, selectedId, onSelect, onRevie
   const { quality } = session
   const facePercent = quality.frames ? Math.round((quality.faceFrames / quality.frames) * 100) : null
   const drift = quality.driftChecks?.length ? Math.round(quality.driftChecks.reduce((sum, check) => sum + check.errorPx, 0) / quality.driftChecks.length) : null
+  // Gaze and face data stop when the camera was lost; frame counts cover only the time before.
+  const lost = quality.cameraLost
+  const until = lost ? `UNTIL ${clock(lost.t)}` : ''
   const reviewed = analysis.candidates.filter(candidate => ['confirmed', 'rejected'].includes(reviews[candidate.id]?.status)).length
   // Reviews saved against moments this version no longer flags.
   const ids = new Set(analysis.candidates.map(candidate => candidate.id))
@@ -153,8 +170,10 @@ function SessionView({ session, analysis, reviews, selectedId, onSelect, onRevie
     <section className="stage">
       <div className="quality">
         <span className="kicker">Data quality</span>
-        <span className={`chip ${quality.gazeEnabled ? 'live' : ''}`}>{quality.gazeEnabled ? `GAZE ${quality.accuracy.meanDegrees.toFixed(1)}° · PASS` : 'GAZE OFF'}</span>
-        {facePercent !== null && <span className="chip">{facePercent}% FRAMES WITH FACE</span>}
+        {lost && <span className="chip strong" title={lost.reason}>CAMERA LOST AT {clock(lost.t)}{lost.taskId ? ` · ${lost.taskId}` : ''}</span>}
+        <span className={`chip ${quality.gazeEnabled ? 'live' : ''}`}>{quality.gazeEnabled ? `GAZE ${quality.accuracy.meanDegrees.toFixed(1)}° · ${until || 'PASS'}` : 'GAZE OFF'}</span>
+        {facePercent !== null && <span className="chip">{facePercent}% FRAMES WITH FACE{until && ` · ${until}`}</span>}
+        {session.baseline?.from === 'tasks' && <span className="chip" title="Calibration gave no face baseline, so brow and lean are compared with the participant's first face frames in the tasks.">FACE BASELINE FROM TASKS</span>}
         {drift !== null && <span className="chip">DRIFT CHECK ×{quality.driftChecks.length} · {drift} PX</span>}
         <span className="chip">NO VIDEO STORED</span>
       </div>
@@ -180,14 +199,16 @@ function SessionView({ session, analysis, reviews, selectedId, onSelect, onRevie
             </div>
           </article>
         })}
-        {!analysis.candidates.length && <p className="muted small">Nothing was flagged. Check the data quality chips: with gaze off, only click and page signals are available.</p>}
+        {!analysis.candidates.length && <p className="muted small">Nothing was flagged. Check the data quality chips: with gaze off, only click and page signals are available.{lost && ` Gaze and face signals stop at ${clock(lost.t)}, when the camera was lost.`}</p>}
       </div>
       <p className="muted small sidebar-note">Severity uses Nielsen’s 0–4 scale (0 not a problem, 4 catastrophe). Flags are evidence for you to judge, not findings.</p>
     </aside>
   </div>
 }
 
-export function Review({ initialSession }) {
+// main.jsx keeps Review mounted while it is hidden, so Back and Forward keep
+// unexported reviews.
+export function Review({ initialSession, request = 0, hidden = false }) {
   const [open, setOpen] = useState(() => (initialSession ? opened(initialSession) : null))
   const [reviews, setReviews] = useState(initialSession?.reviews || {})
   const [selectedId, setSelectedId] = useState(null)
@@ -226,11 +247,20 @@ export function Review({ initialSession }) {
         return
       }
       setError('')
-      if (unexported) setPending(next)
-      else commit(next)
+      offer(next)
     }
     reader.readAsText(file)
   }
+  const offer = next => (unexported ? setPending(next) : commit(next))
+  // Each press of the finished screen's 'Review this session' (request)
+  // offers the session just recorded in this tab like a chosen file, once
+  // Review is shown. Cancel only means not now: the next press offers it again.
+  const handled = useRef(request)
+  useEffect(() => {
+    if (hidden || request === handled.current) return
+    handled.current = request
+    if (initialSession && session !== initialSession) offer(opened(initialSession))
+  }, [hidden, request, initialSession])
   const cancelLoad = () => {
     setPending(null)
     inputRef.current?.focus()
@@ -250,16 +280,18 @@ export function Review({ initialSession }) {
     setUnexported(true)
   }
 
+  // Mounted only when shown, so it picks up a theme chosen on another screen.
+  const toggle = hidden ? null : <ThemeToggle />
   // The value is cleared so that choosing the same file again, after Cancel, still loads it.
   const picker = <label className="btn ghost file-button" htmlFor="session-file">{session ? 'Load another file' : 'Choose a session file'}<input ref={inputRef} id="session-file" type="file" accept="application/json,.json" onChange={event => { const [file] = event.target.files; event.target.value = ''; if (file) load(file) }} /></label>
 
   if (!session) return <div className="screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Researcher review</small></div></div><ThemeToggle /></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Researcher review</small></div></div>{toggle}</header>
     <main className="center-note"><span className="kicker">Review a session</span><h2>Load a session file</h2><p className="muted">Participants download a results file at the end of a session. Load it here to see flagged moments. Files are read in this browser and not uploaded.</p>{picker}{error && <p className="warning" role="alert">{error}</p>}</main>
   </div>
 
   return <div className="screen review-screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Session review · {session.participant}</strong><small>{session.study.title} · {session.tasks.length} tasks · {clock(analysis.duration)}</small></div></div><div className="actions">{picker}<button className="btn secondary" onClick={exportFile}>Export reviewed file</button><ThemeToggle /></div></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Session review · {session.participant}</strong><small>{session.study.title} · {session.tasks.length} tasks · {clock(analysis.duration)}</small></div></div><div className="actions">{picker}<button className="btn secondary" onClick={exportFile}>Export reviewed file</button>{toggle}</div></header>
     {error && <p className="warning banner" role="alert">{error}</p>}
     {pending && <div className="warning banner actions" role="group" aria-labelledby="replace-note" onKeyDown={event => event.key === 'Escape' && cancelLoad()}>
       <span id="replace-note">Your reviews for {session.participant} are not exported yet. Loading {pending.session.participant} will replace them.</span>

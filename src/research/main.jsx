@@ -57,6 +57,10 @@ function App() {
   const stepRef = useRef(step)
   stepRef.current = step
   const backTo = useRef('consent')
+  // Review stays mounted, hidden, once opened, so unexported reviews survive
+  // Back and Forward. Deleting the data unmounts it.
+  const [reviewKept, setReviewKept] = useState(step === 'review')
+  const [reviewRequest, setReviewRequest] = useState(0)
 
   // #review opens the review screen and leaving it goes back, except while a
   // session is being recorded.
@@ -65,7 +69,7 @@ function App() {
       const current = stepRef.current
       if (location.hash === '#review') {
         if (RECORDING.includes(current)) history.replaceState(null, '', location.pathname + location.search)
-        else if (current !== 'review') { backTo.current = current; setStep('review') }
+        else if (current !== 'review') { backTo.current = current; setReviewKept(true); setStep('review') }
       } else if (current === 'review') setStep(backTo.current)
     }
     addEventListener('hashchange', onHash)
@@ -163,6 +167,7 @@ function App() {
     recorderRef.current?.stop()
     recorderRef.current = null
     setSession(null)
+    setReviewKept(false)
     setStep('deleted')
   }
 
@@ -172,9 +177,9 @@ function App() {
     {step === 'loading' && <div className="center-note"><span className="kicker">Starting the camera</span><h2>Loading on-device vision…</h2><p className="muted">{status || 'This takes a few seconds the first time.'}</p></div>}
     {step === 'calibrate' && <Calibration subscribe={subscribe} aspect={aspect} onDone={calibrated} />}
     {step === 'tasks' && <TaskRunner study={DEMO_STUDY} recorder={recorderRef.current} gazeModel={gazeModel} subscribe={subscribe} aspect={aspect} cameraOn={cameraOn} cameraLost={cameraLost} notice={status} onFinish={finish} onStop={discard} />}
-    {step === 'finished' && <Finished session={session} saved={saved} onSaved={() => setSaved(true)} onReview={() => { location.hash = 'review' }} onDelete={discard} />}
+    {step === 'finished' && <Finished session={session} saved={saved} onSaved={() => setSaved(true)} onReview={() => { setReviewRequest(count => count + 1); location.hash = 'review' }} onDelete={discard} />}
     {step === 'deleted' && <div className="center-note"><span className="kicker">Session ended</span><h2>{saved ? 'Your data was deleted from this page' : 'Your data was deleted'}</h2><p className="muted">{saved ? 'The results file you downloaded is still in your downloads folder. Delete it there too if you do not want to keep it. You can close this tab.' : 'Nothing from this session was saved or sent. You can close this tab.'}</p></div>}
-    {step === 'review' && <Review initialSession={session} />}
+    {reviewKept && <div hidden={step !== 'review'}><Review initialSession={session} request={reviewRequest} hidden={step !== 'review'} /></div>}
   </div>
 }
 

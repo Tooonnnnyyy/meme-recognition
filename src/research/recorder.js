@@ -5,6 +5,9 @@
 
 const round = value => Math.round(value)
 const round3 = value => Math.round(value * 1000) / 1000
+// The median Calibration.jsx takes its baseline with.
+const median = values => [...values].sort((a, b) => a - b)[values.length >> 1]
+const BASELINE_FRAMES = 30
 
 // A page's path under the study's site root, without .html: 'orders',
 // 'cart/index'. The review screen loads `${siteBase}${page}.html` to replay it.
@@ -14,27 +17,47 @@ export function pageId(href, rootPath = '/') {
   return (inside === '' || inside.endsWith('/') ? `${inside}index.html` : inside).replace(/\.html$/, '')
 }
 
-const isField = node => /^(INPUT|SELECT|TEXTAREA)$/.test(node.tagName) || Boolean(node.isContentEditable)
+// Inputs that are buttons: their value is the caption the page set.
+const isButtonInput = node => node.tagName === 'INPUT' && /^(submit|button|reset|image)$/i.test(node.getAttribute('type'))
+const isField = node => (/^(INPUT|SELECT|TEXTAREA)$/.test(node.tagName) && !isButtonInput(node)) || Boolean(node.isContentEditable)
 const clean = text => (text || '').trim().replace(/\s+/g, ' ').slice(0, 60)
+// Hidden parts of a control (a closed suggestion list, a screen-reader copy)
+// can hold an echo of what was typed, and are not what the participant saw.
+const isHidden = node => {
+  if (node.hidden || node.getAttribute?.('aria-hidden') === 'true' || /^(SCRIPT|STYLE|TEMPLATE|NOSCRIPT)$/.test(node.tagName)) return true
+  const style = node.ownerDocument?.defaultView?.getComputedStyle?.(node)
+  return Boolean(style && (style.display === 'none' || style.visibility === 'hidden'))
+}
+// An element's visible text without the fields and editable areas inside it,
+// whose text is what the participant typed.
+const textOf = node => [...node.childNodes].map(child => child.nodeType === 3 ? child.textContent : child.nodeType === 1 && !isField(child) && !isHidden(child) ? textOf(child) : '').join(' ')
 
 // What a field is called, never what it holds: its value is what the
 // participant typed or chose.
 function fieldLabel(node) {
   const label = node.labels?.[0]
-  const labelText = label && [...label.childNodes].filter(child => !(child.nodeType === 1 && isField(child))).map(child => child.textContent).join(' ')
-  return clean(node.getAttribute('aria-label') || clean(labelText) || node.getAttribute('placeholder') || node.getAttribute('name') || node.getAttribute('type') || node.tagName.toLowerCase())
+  return clean(node.getAttribute('aria-label') || clean(label && textOf(label)) || node.getAttribute('placeholder') || node.getAttribute('name') || node.getAttribute('type') || node.tagName.toLowerCase())
 }
 
-const INTERACTIVE = 'a, button, input, select, textarea, label, [role="button"], [data-track]'
+const INTERACTIVE = 'a, button, input, select, textarea, label, summary, [role="button"], [data-track]'
 const selectorOf = node => node.tagName.toLowerCase() + (node.id ? `#${node.id}` : '') + [...node.classList].map(name => `.${name}`).join('')
+
+// Controls are named by their text. Other elements are named only by
+// aria-label: their text may echo what was typed (a new list item, a search).
+function controlLabel(node, interactive) {
+  if (isButtonInput(node)) return clean(node.getAttribute('aria-label') || node.value || node.getAttribute('alt') || node.getAttribute('type'))
+  return clean(node.getAttribute('aria-label') || (interactive ? textOf(node) : ''))
+}
 
 export function describeTarget(element, doc) {
   const interactive = element.closest(INTERACTIVE)
   const node = interactive || element
   if (node === doc.body || node === doc.documentElement) return { selector: 'body', label: '', interactive: false, formField: false, aoi: null }
   const formField = isField(node)
-  const label = formField ? fieldLabel(node) : clean(node.getAttribute('aria-label') || node.innerText)
-  return { selector: selectorOf(node), label, interactive: Boolean(interactive), formField, aoi: node.closest('[data-aoi]')?.dataset.aoi || null }
+  const label = formField ? fieldLabel(node) : controlLabel(node, Boolean(interactive))
+  // A label's press changes the field it labels, which answers the press.
+  const controls = node.tagName === 'LABEL' && node.control ? { controls: selectorOf(node.control) } : {}
+  return { selector: selectorOf(node), label, interactive: Boolean(interactive), formField, aoi: node.closest('[data-aoi]')?.dataset.aoi || null, ...controls }
 }
 
 // Areas inside a position: fixed element stay put on screen as the page
@@ -65,7 +88,7 @@ export function createRecorder({ study, participant }) {
   let page = null
   let frame = null
   let detach = () => {}
-  let clickedAt = Infinity
+  let clicked = false
   const kept = {}
   // A throttled event is folded into the last kept one of its type, which
   // records its time as `last`, so the end of a burst of input is not lost.
@@ -92,27 +115,32 @@ export function createRecorder({ study, participant }) {
       const rect = element.getBoundingClientRect()
       const fixed = isFixed(element, win)
       const [x, y] = fixed ? [rect.left, rect.top] : [rect.left + win.scrollX, rect.top + win.scrollY]
-      return { id: element.dataset.aoi, rect: { x: round(x), y: round(y), width: round(rect.width), height: round(rect.height) }, ...(fixed && { fixed: true }) }
+      // Edges are rounded, not sizes, so a child flush with its container's
+      // edge does not stick out of it by a pixel.
+      const [left, top] = [round(x), round(y)]
+      return { id: element.dataset.aoi, rect: { x: left, y: top, width: round(x + rect.width) - left, height: round(y + rect.height) - top }, ...(fixed && { fixed: true }) }
     })
     push('navigate', { page })
     // pointerdown, not click: disabled buttons swallow click events, and a
     // press on a disabled button is exactly the friction we want to see.
     const onPointer = event => {
       if (event.button !== 0) return
-      clickedAt = push('click', { page, x: round(event.pageX), y: round(event.pageY), target: describeTarget(event.target, doc) }).t
+      push('click', { page, x: round(event.pageX), y: round(event.pageY), target: describeTarget(event.target, doc) })
+      clicked = true
     }
     const onActivity = () => push('activity', {}, 1000)
     const onScroll = () => { push('scroll', { page, x: round(win.scrollX), y: round(win.scrollY) }, 250); onActivity() }
-    const onChange = () => push('change')
+    // The selector shows which field changed: pressing a button blurs the
+    // field typed in before, whose change is not the button's response.
+    const onChange = event => push('change', { selector: selectorOf(event.target) })
     // The selector (built as for clicks) shows whether focus went to the
     // clicked element itself.
     const onFocus = event => push('focus', { selector: selectorOf(event.target.closest(INTERACTIVE) || event.target) })
-    // The first DOM change after a click is never throttled away: it may be
-    // the click's only response.
+    // The first DOM change after a click, even in the same millisecond, is
+    // never throttled away: it may be the click's only response.
     const observer = new MutationObserver(() => {
-      const answer = now() > clickedAt
-      if (answer) clickedAt = Infinity
-      push('mutation', {}, answer ? 0 : 100)
+      push('mutation', {}, clicked ? 0 : 100)
+      clicked = false
     })
     doc.addEventListener('pointerdown', onPointer, true)
     doc.addEventListener('mousemove', onActivity, true)
@@ -144,12 +172,18 @@ export function createRecorder({ study, participant }) {
     session.gaze.push({ t: now(), page, x: round(point.x - rect.left + win.scrollX), y: round(point.y - rect.top + win.scrollY), sx: round(win.scrollX), sy: round(win.scrollY) })
   }
 
+  // With no baseline from calibration (skipped, or too few face frames), the
+  // first task frames give it, so brow and lean signals still work.
+  const early = []
   const recordFace = sample => {
     if (!task) return
     session.quality.frames += 1
     if (!sample) return
     session.quality.faceFrames += 1
-    session.face.push({ t: now(), brow: round3(sample.brow), scale: round3(sample.scale) })
+    const face = { t: now(), brow: round3(sample.brow), scale: round3(sample.scale) }
+    session.face.push(face)
+    if (session.baseline || early.push(face) < BASELINE_FRAMES) return
+    session.baseline = { brow: median(early.map(item => item.brow)), scale: median(early.map(item => item.scale)), from: 'tasks' }
   }
 
   return {

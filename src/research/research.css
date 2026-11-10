@@ -124,6 +124,12 @@ h1, h2, h3 { margin: 0; letter-spacing: -.02em; text-wrap: balance; }
 /* result: the validation dots sit near the edges, so the card goes in the middle */
 .calibration.is-result { display: grid; place-items: center; padding: 16px; overflow: auto; }
 .vectors { position: absolute; inset: 0; pointer-events: none; }
+/* markers above the card's background, the card's content above them, with a
+   halo so text stays readable over a marker */
+.vectors.markers, .result-panel > * { z-index: 1; }
+.result-panel > * { position: relative; }
+.result-panel { text-shadow: 0 0 2px var(--surface), 0 0 2px var(--surface); }
+.result-panel .btn.primary { text-shadow: none; }
 .vectors .cross { stroke: var(--dim); stroke-width: 2; fill: none; }
 .vectors .error { stroke: var(--accent-ink); stroke-opacity: .65; stroke-width: 1.5; }
 .vectors .estimate { fill: var(--accent-ink); }

@@ -56,21 +56,44 @@ test('I-DT finds fixations and skips saccades and data gaps', () => {
   assert.ok(Math.abs(fixations[1].x - 900) < 15)
 })
 
-test('areas of interest: a point inside areas goes to the smallest; the margin only applies outside all of them', () => {
+test('a child area a pixel past its container\'s edge still counts as nested', () => {
+  const aois = [{ id: 'help-topics', rect: { x: 0, y: 0, width: 600, height: 300 } }, { id: 'help-returns', rect: { x: 300, y: 20, width: 301, height: 120 } }]
+  assert.equal(aoiAt({ x: 280, y: 60 }, aois, 40), 'help-returns')
+})
+
+test('areas of interest grow by the gaze error; a near miss on an area nested in another goes to it', () => {
   const aois = [{ id: 'page', rect: { x: 0, y: 0, width: 1000, height: 800 } }, { id: 'button', rect: { x: 100, y: 100, width: 80, height: 30 } }]
   assert.equal(aoiAt({ x: 120, y: 110 }, aois), 'button')
   assert.equal(aoiAt({ x: 220, y: 110 }, aois), 'page')
-  assert.equal(aoiAt({ x: 220, y: 110 }, aois, 50), 'page')
+  assert.equal(aoiAt({ x: 220, y: 110 }, aois, 50), 'button')
+  assert.equal(aoiAt({ x: 600, y: 600 }, aois, 50), 'page')
   assert.equal(aoiAt({ x: 2000, y: 110 }, aois), null)
   assert.equal(aoiAt({ x: 1040, y: 110 }, aois, 50), 'page')
 })
 
 test('a point inside one area is not taken by a smaller neighbour grown by the margin', () => {
-  const aois = [{ id: 'refund-method', rect: { x: 40, y: 300, width: 400, height: 60 } }, { id: 'submit-return', rect: { x: 40, y: 380, width: 120, height: 36 } }]
-  assert.equal(aoiAt({ x: 100, y: 330 }, aois, 141), 'refund-method')
-  // Outside both: the nearer grown area wins, then the smaller.
-  assert.equal(aoiAt({ x: 100, y: 371 }, aois, 40), 'submit-return')
-  assert.equal(aoiAt({ x: 100, y: 365 }, aois, 40), 'refund-method')
+  const form = { id: 'return-form', rect: { x: 0, y: 100, width: 1000, height: 600 } }
+  const refund = { id: 'refund-method', rect: { x: 40, y: 300, width: 400, height: 60 } }
+  const submit = { id: 'submit-return', rect: { x: 40, y: 380, width: 120, height: 36 } }
+  assert.equal(aoiAt({ x: 100, y: 330 }, [refund, submit], 141), 'refund-method')
+  assert.equal(aoiAt({ x: 100, y: 330 }, [form, refund, submit], 141), 'refund-method')
+  // Inside neither: the smaller grown area wins, then the nearer.
+  assert.equal(aoiAt({ x: 100, y: 365 }, [form, refund, submit], 40), 'submit-return')
+  const twins = [{ id: 'left', rect: { x: 0, y: 0, width: 100, height: 50 } }, { id: 'right', rect: { x: 200, y: 0, width: 100, height: 50 } }]
+  assert.equal(aoiAt({ x: 140, y: 20 }, twins, 80), 'left')
+  assert.equal(aoiAt({ x: 170, y: 20 }, twins, 80), 'right')
+})
+
+test('a fixed area hides the areas that scroll under it', () => {
+  const aois = [
+    { id: 'account-menu', rect: { x: 40, y: 88, width: 220, height: 669 } },
+    { id: 'footer', rect: { x: 0, y: 530, width: 1440, height: 120 }, fixed: true },
+    { id: 'footer-returns', rect: { x: 40, y: 590, width: 325, height: 18 }, fixed: true },
+  ]
+  // 12 px below the footer link, at viewport y 620, while the menu runs under the footer.
+  for (const sy of [0, 100, 200]) assert.equal(aoiAt({ x: 202, y: 620 + sy, sx: 0, sy }, aois, 80), 'footer-returns')
+  // Just above the footer the menu is visible and keeps its gaze.
+  assert.equal(aoiAt({ x: 150, y: 600, sx: 0, sy: 100 }, aois, 80), 'account-menu')
 })
 
 test('fixed areas are in viewport coordinates and use the point\'s scroll offset', () => {

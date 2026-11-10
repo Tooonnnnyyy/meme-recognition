@@ -37,8 +37,8 @@ Gesture Meme Studio turns a webcam into an expressive controller. Hold an illust
 `research.html` turns the same on-device vision engine into a usability-testing assistant. A participant works through tasks on a website while the page records clicks, page changes, approximate gaze areas and facial movement. Afterwards it flags the moments where they probably got stuck, so a researcher reviews those instead of a whole recording.
 
 - **Participant flow:** consent, then a 1-minute calibration whose accuracy is measured on separate dots, then the tasks, then the participant downloads or deletes a results file. Gaze is used only when validation error is at most 3°; the camera is optional.
-- **Signals:** unanswered clicks, rage clicks, going round in circles between pages and timeouts (strong); idle periods and searching gaze (medium); held brow lowering or leaning in (weak). A strong signal flags a moment on its own; medium and weak ones only together. Emotions are never inferred.
-- **Researcher review:** open `research.html#review`, load a session file, and confirm or reject each flagged moment with a 0–4 severity. Files are read locally.
+- **Signals:** unanswered clicks, rage clicks, going round in circles between pages and timeouts (strong); idle periods and visual search, where gaze jumps between areas without a click (medium); held brow lowering or leaning in (weak). A strong signal flags a moment on its own; medium and weak ones only together. Emotions are never inferred.
+- **Researcher review:** open `research.html#review`, load a session file, confirm or reject each flagged moment with a 0–4 severity, and export the reviewed file. Files are read locally.
 - **Demo:** a fictional shop in `public/research-site/` contains three planted usability problems for the demo study.
 
 Details, thresholds, the session file format and how to test your own prototype: [docs/usability-copilot.md](docs/usability-copilot.md).
@@ -116,7 +116,7 @@ Meme lookalike turns each face into 43 blendshape scores (MediaPipe’s 52 minus
 
 Camera frames stay in the browser. This project has no backend, analytics, recording, upload, persistence, or cloud inference path. The calibration baseline and any **Use my face** references live in memory for the current page visit only. **Stop camera** stops the media tracks and closes the vision tasks.
 
-Usability Copilot keeps the same rule: no video or face images are stored. Its session file holds timestamps, clicks, page names, gaze coordinates and two face numbers per frame (brow lowering and face size). Nothing typed into the tested site is stored. The participant decides whether to download and share it, and can stop and delete everything at any time.
+Usability Copilot keeps the same rule: no video or face images are stored or sent. Its session file holds clicks with the text or label of what was clicked, the pages visited, scrolling, the times of mouse and key activity (never which keys), task times and outcomes, calibration accuracy, and with the camera on, gaze estimates and two face numbers per frame (brow lowering and face size). What is typed into fields of the tested site is never stored (text a page shows inside a button or link is stored as that control's label), and emotions are never labelled. Nothing is uploaded: the participant decides whether to download and share the file, and can stop and delete everything at any time. Deleting clears the page; a file already downloaded has to be deleted from the downloads folder.
 
 ## Repository security
 
@@ -142,7 +142,7 @@ public/vision/       Local MediaPipe models and WASM runtime
 public/reactions/    Local reaction images
 public/research-site/ Fictional shop used by the Usability Copilot demo study
 scripts/             Security and MediaPipe runtime checks
-tests/               Rule, smoothing, calibration, lookalike, gaze and signal tests
+tests/               Rule, smoothing, calibration, lookalike, gaze, signal and recorder tests
 docs/                P0 validation protocol, Usability Copilot guide
 ```
 
