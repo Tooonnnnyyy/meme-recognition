@@ -8,11 +8,16 @@ import { aoiAt, detectFixations } from './fixations.js'
 //   click     { t, taskId, page, x, y, target: { selector, label, interactive, formField, aoi } }
 //   mutation  { t, taskId }            the page changed (DOM mutation)
 //   change    { t, taskId }            a form value changed (radio, checkbox, select)
-//   focus     { t, taskId }            a form field took focus
+//   focus     { t, taskId, selector }  an element took focus
 //   scroll    { t, taskId, page, x, y } scroll position, for replay
 //   navigate  { t, taskId, page }
 //   activity  { t, taskId }            mouse move, key press or scroll
-// gaze: [{ t, page, x, y }] in page document coordinates
+// Throttled events (mutation, scroll, activity) carry `last`, the time of the
+// last event folded into them, when there was one.
+// gaze: [{ t, page, x, y, sx, sy }] in page document coordinates, with the
+// scroll offset at that moment
+// aois: { [page]: [{ id, rect, fixed? }] }, rects in document coordinates, or in
+// viewport coordinates when fixed
 // face: [{ t, brow, scale }]; baseline: { brow, scale } from calibration
 
 export const STRONG = 'strong'
@@ -40,13 +45,22 @@ const taskAt = (tasks, t) => tasks.find(task => t >= task.start && t <= (task.en
 
 function deadClicks(session, settings) {
   const responses = session.events.filter(event => ['mutation', 'change', 'navigate', 'focus'].includes(event.type))
+  const clicks = session.events.filter(event => event.type === 'click').sort((a, b) => a.t - b.t)
   const signals = []
-  // Form fields answer clicks natively (a select opens, a caret appears), and
-  // a click on the empty page background expects nothing.
-  session.events.filter(event => event.type === 'click' && event.target?.selector !== 'body' && !event.target?.formField).forEach(click => {
+  clicks.forEach((click, index) => {
+    // Form fields answer clicks natively (a select opens, a caret appears), and
+    // a click on the empty page background expects nothing.
+    if (click.target?.selector === 'body' || click.target?.formField) return
+    // The window for a response closes at the participant's next click, since
+    // what follows may be that click's doing. A button or link taking focus on
+    // its own press is not a response either.
+    const next = clicks[index + 1]
+    const closes = Math.min(click.t + settings.deadClickMs, next?.t ?? Infinity)
+    const answered = responses.some(response => response.t > click.t && response.t < closes && !(response.type === 'focus' && response.selector === click.target?.selector))
+    if (answered) return
+    // The task ended before the window closed, so there is nothing to judge.
     const task = session.tasks.find(item => item.id === click.taskId)
-    if (responses.some(response => response.t > click.t && response.t <= click.t + settings.deadClickMs)) return
-    if (task?.end != null && task.end < click.t + settings.deadClickMs) return
+    if (task?.end != null && task.end < closes) return
     const previous = signals[signals.length - 1]
     if (previous && previous.taskId === click.taskId && previous.detail.selector === click.target.selector && click.t - previous.end < 10000) {
       previous.end = click.t
@@ -101,7 +115,8 @@ function timeouts(session) {
 function idlePeriods(session, settings) {
   const signals = []
   session.tasks.forEach(task => {
-    const times = [task.start, ...session.events.filter(event => event.taskId === task.id && ['click', 'activity', 'navigate', 'focus', 'change', 'scroll'].includes(event.type)).map(event => event.t), task.end ?? task.start]
+    // `last` is the end of a throttled burst of input, so idle starts there.
+    const times = [task.start, ...session.events.filter(event => event.taskId === task.id && ['click', 'activity', 'navigate', 'focus', 'change', 'scroll'].includes(event.type)).flatMap(event => [event.t, event.last ?? event.t]), task.end ?? task.start]
     times.sort((a, b) => a - b)
     for (let index = 1; index < times.length; index += 1) {
       if (times[index] - times[index - 1] >= settings.idleMs) signals.push({ kind: 'idle', strength: MEDIUM, taskId: task.id, start: times[index - 1], end: times[index], count: 1, detail: { seconds: Math.round((times[index] - times[index - 1]) / 1000) } })
@@ -163,7 +178,8 @@ function faceSignals(session, settings) {
   return [...brow, ...lean].filter(signal => signal.taskId)
 }
 
-// Fixations per page, labelled with their task and area of interest.
+// Fixations per page, labelled with their task and area of interest, in time
+// order across pages.
 export function sessionFixations(session, settings = DEFAULTS) {
   if (!session.quality?.gazeEnabled || !session.gaze?.length) return []
   const margin = Math.max(settings.aoiMarginPx, session.quality.accuracy?.meanPx || 0)
@@ -173,7 +189,7 @@ export function sessionFixations(session, settings = DEFAULTS) {
     page,
     taskId: taskAt(session.tasks, fixation.start),
     aoi: aoiAt(fixation, session.aois?.[page] || [], margin),
-  })))
+  }))).sort((a, b) => a.start - b.start)
 }
 
 export function detectSignals(session, overrides = {}) {
@@ -193,31 +209,38 @@ export function detectSignals(session, overrides = {}) {
 // A strong signal opens a candidate on its own; a medium one needs a weak one
 // within pairWindowMs. Overlapping windows in the same task merge, and every
 // signal inside a window is kept as evidence.
+//
+// Reviews are stored by candidate id, so the id comes from the strongest
+// signal that opened the moment (task, kind, start), not from its position:
+// re-scoring with other thresholds keeps the ids of moments that remain. Ids
+// are unique because each opener lies inside its own window and windows in a
+// task do not overlap.
 export function findCandidates(signals, { padMs = 2000, pairWindowMs = 5000 } = {}) {
   const windows = []
   const weak = signals.filter(signal => signal.strength === WEAK)
   signals.forEach(signal => {
-    if (signal.strength === STRONG) windows.push({ taskId: signal.taskId, start: signal.start - padMs, end: signal.end + padMs })
+    if (signal.strength === STRONG) windows.push({ taskId: signal.taskId, start: signal.start - padMs, end: signal.end + padMs, anchor: signal })
     if (signal.strength !== MEDIUM) return
     const partner = weak.find(item => item.taskId === signal.taskId && item.start <= signal.end + pairWindowMs && item.end >= signal.start - pairWindowMs)
-    if (partner) windows.push({ taskId: signal.taskId, start: Math.min(signal.start, partner.start) - padMs, end: Math.max(signal.end, partner.end) + padMs })
+    if (partner) windows.push({ taskId: signal.taskId, start: Math.min(signal.start, partner.start) - padMs, end: Math.max(signal.end, partner.end) + padMs, anchor: signal })
   })
   windows.sort((a, b) => (a.taskId === b.taskId ? a.start - b.start : String(a.taskId).localeCompare(String(b.taskId))))
   const merged = []
   windows.forEach(window => {
     const previous = merged[merged.length - 1]
-    if (previous && previous.taskId === window.taskId && window.start <= previous.end) previous.end = Math.max(previous.end, window.end)
-    else merged.push({ ...window, start: Math.max(0, window.start) })
+    if (previous && previous.taskId === window.taskId && window.start <= previous.end) {
+      previous.end = Math.max(previous.end, window.end)
+      if (window.anchor.strength === STRONG && previous.anchor.strength !== STRONG) previous.anchor = window.anchor
+    } else merged.push({ ...window, start: Math.max(0, window.start) })
   })
   return merged
-    .map(window => {
+    .map(({ anchor, ...window }) => {
       const evidence = signals.filter(signal => signal.taskId === window.taskId && signal.start <= window.end && signal.end >= window.start)
       const strong = evidence.filter(signal => signal.strength === STRONG).length
       const confidence = strong >= 2 || (strong === 1 && evidence.length > 1) ? 'high' : strong === 1 ? 'medium' : 'low'
-      return { ...window, signals: evidence, confidence }
+      return { id: `${window.taskId}-${anchor.kind}-${anchor.start}`, ...window, signals: evidence, confidence }
     })
     .sort((a, b) => a.start - b.start)
-    .map((candidate, index) => ({ id: `m${index + 1}`, ...candidate }))
 }
 
 // Plain-language evidence for one signal, as shown to the researcher.

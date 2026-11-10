@@ -6,8 +6,10 @@ import { ThemeToggle } from '../ThemeToggle'
 const BASE = import.meta.env.BASE_URL
 const clock = ms => `${String(Math.floor(ms / 60000)).padStart(2, '0')}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
 const OUTCOME_LABELS = { success: 'Completed', 'self-reported': 'Done (self-reported)', unverified: 'Stopped before the goal', skipped: 'Skipped', timeout: 'Ran out of time' }
+// "Stop and delete" stays armed this long, then goes back to its first state.
+const CONFIRM_MS = 5000
 
-export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, cameraOn, notice, onFinish, onStop }) {
+export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, cameraOn, cameraLost, notice, onFinish, onStop }) {
   const frameRef = useRef(null)
   const recent = useRef([])
   const startedAt = useRef(0)
@@ -18,6 +20,7 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
   const [faceSeen, setFaceSeen] = useState(false)
   const [lastOutcome, setLastOutcome] = useState(null)
   const [confirmStop, setConfirmStop] = useState(false)
+  const armedAt = useRef(0)
   const task = study.tasks[index]
   const taskRef = useRef(task)
   taskRef.current = task
@@ -42,16 +45,29 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
     if (index + 1 >= study.tasks.length) onFinish()
     else setIndex(index + 1)
   }
+  const finishRef = useRef(finishTask)
+  finishRef.current = finishTask
 
+  // One interval per running task: face-detection flicker re-renders often,
+  // and an interval rebuilt on each render may never fire.
   useEffect(() => {
     if (!running) return undefined
     const timer = setInterval(() => {
       const ms = performance.now() - startedAt.current
       setElapsed(ms)
-      if (ms > task.limitSec * 1000) finishTask('timeout')
+      if (ms > taskRef.current.limitSec * 1000) finishRef.current('timeout')
     }, 250)
     return () => clearInterval(timer)
-  })
+  }, [running])
+
+  useEffect(() => {
+    if (!confirmStop) return undefined
+    const timer = setTimeout(() => setConfirmStop(false), CONFIRM_MS)
+    return () => clearTimeout(timer)
+  }, [confirmStop])
+  const armStop = () => { armedAt.current = performance.now(); setConfirmStop(true) }
+  // Ignores the second click of a double click on "Stop and delete".
+  const confirmDelete = () => { if (performance.now() - armedAt.current > 500) onStop() }
 
   const start = event => {
     // Drift check: people look at a button while they click it, so the gaze
@@ -103,30 +119,32 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
       </div>}
       <div className="floating">
         <span className="chip live borderless"><span className="dot" />LOCAL</span>
-        <span className="mono small muted">{cameraOn ? `camera on · ${gazeModel ? 'gaze on' : 'gaze off'}${faceSeen ? '' : ' · face not visible'}` : 'camera off'}</span>
+        {cameraLost
+          ? <span className="chip strong borderless">CAMERA STOPPED</span>
+          : <span className="mono small muted">{cameraOn ? `camera on · ${gazeModel ? 'gaze on' : 'gaze off'}${faceSeen ? '' : ' · face not visible'}` : 'camera off'}</span>}
         {confirmStop
-          ? <button className="btn danger small-btn" onClick={onStop}>Delete everything</button>
-          : <button className="btn secondary small-btn" onClick={() => setConfirmStop(true)}>Stop and delete</button>}
+          ? <><button className="btn danger small-btn" onClick={confirmDelete}>Delete everything</button><button className="btn ghost small-btn" autoFocus onClick={() => setConfirmStop(false)}>Cancel</button></>
+          : <button className="btn secondary small-btn" onClick={armStop}>Stop and delete</button>}
       </div>
     </div>
   </div>
 }
 
-export function Finished({ session, onReview, onDelete }) {
-  const [saved, setSaved] = useState(false)
+export function Finished({ session, saved, onSaved, onReview, onDelete }) {
   const download = () => {
     const blob = new Blob([JSON.stringify(session)], { type: 'application/json' })
     const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `usability-session-${session.participant}.json` })
     link.click()
     setTimeout(() => URL.revokeObjectURL(link.href), 1000)
-    setSaved(true)
+    onSaved()
   }
+  const camera = session.gaze.length > 0 || session.face.length > 0
   return <div className="screen">
     <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study · {session.study.title} · participant {session.participant}</small></div></div><div className="actions"><span className="chip">CAMERA OFF</span><ThemeToggle /></div></header>
     <main className="finished">
       <span className="kicker">Step 3 of 3 · Finished</span>
       <h1>Thank you</h1>
-      <p className="lede">The camera is off. Your results file contains timestamps, task times, clicks and signal numbers. It has no video and no images of you.</p>
+      <p className="lede">The camera is off. Your results file lists your clicks and what you clicked, the pages you saw, your scrolling, and task times and outcomes{camera ? ', plus estimates of where you looked and face movement as numbers' : ''}. It has no video, no images of you and nothing you typed.</p>
       <div className="panel outcome-list">
         {session.tasks.map(task => <div key={task.id} className="outcome"><span className="mono">{task.id}</span><span>{task.prompt}</span><span className="muted">{OUTCOME_LABELS[task.outcome]}</span><span className="mono">{clock(task.end - task.start)}</span></div>)}
       </div>
@@ -135,6 +153,7 @@ export function Finished({ session, onReview, onDelete }) {
         <button className="btn ghost" onClick={onReview}>Review this session (researcher)</button>
         <button className="btn ghost" onClick={onDelete}>Delete my data</button>
       </div>
+      {saved && <p className="muted small">The file is in your downloads folder. If you delete your data here, delete that file too.</p>}
     </main>
   </div>
 }

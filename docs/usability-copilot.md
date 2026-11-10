@@ -9,6 +9,7 @@ Open `research.html` for the participant flow and `research.html#review` to revi
 | Part | Status |
 | --- | --- |
 | Signal detectors and candidate fusion | Unit-tested against hand-built sessions (`tests/research-signals.test.js`). |
+| Recorder: page names, click labels, fixed areas | Unit-tested with stand-in pages, no browser (`tests/research-recorder.test.js`). |
 | Gaze regression, accuracy measurement, fixations | Unit-tested on synthetic data (`tests/research-gaze.test.js`). |
 | Whole participant and review flow | Run end to end in headless Chromium with a fake webcam. |
 | Gaze accuracy with real people | **Not yet measured.** Literature suggests 2–4° for webcam trackers; the app measures each session and turns gaze off above 3°. |
@@ -25,7 +26,7 @@ Open `research.html` for the participant flow and `research.html#review` to revi
 
 | Strength | Signal | Starting definition |
 | --- | --- | --- |
-| Strong | No response to a click | No DOM change, form change, focus or navigation within 3.5 s. Clicks on form fields and on empty page background are ignored. |
+| Strong | No response to a click | No DOM change, form change, focus or navigation within 3.5 s, or before the next click if that comes sooner. The clicked element taking focus does not count. Clicks on form fields, and clicks that land on the page `<body>` itself, are ignored; clicks on text and other non-interactive elements count. A click is not judged if the task ends before that window closes. |
 | Strong | Rage clicks | At least 4 clicks within 2 s and 60 px. |
 | Strong | Going round in circles | Third visit to the same page within one task. |
 | Strong | Timeout | The task's time limit was reached. |
@@ -34,34 +35,37 @@ Open `research.html` for the participant flow and `research.html#review` to revi
 | Weak | Brow lowered | Brow-lowering score at least 0.15 above the calibrated baseline for 2 s or more. |
 | Weak | Leaning in | Face at least 15% larger than the baseline for 2 s or more. |
 
-A **candidate moment** is opened by any strong signal, or by a medium signal with a weak one within 5 s. Windows are padded by 2 s and overlapping windows in the same task merge. Confidence: **high** with two strong signals or a strong one plus anything else, **medium** with one strong signal, **low** with only medium plus weak.
+A **candidate moment** is opened by any strong signal, or by a medium signal with a weak one within 5 s. Windows are padded by 2 s and overlapping windows in the same task merge. Confidence: **high** with two strong signals or a strong one plus anything else, **medium** with one strong signal, **low** with only medium plus weak. A moment's id comes from its task, the signal that opened it and that signal's start time (for example `T2-dead-click-48210`), so saved reviews stay with their moments when a session is re-scored.
 
 These thresholds come from industry definitions (Sprig's rage and dead clicks) and the research plan. They are starting points, so replace them with values from pilot data. They live in `DEFAULTS` in `src/research/signals.js`, and sessions can be re-scored at any time because detection runs on the saved file.
 
 ## Testing your own prototype
 
-1. Put the prototype's HTML pages under `public/` (for example `public/my-study/`). They must be served from the same origin so the recorder can see clicks and page changes.
+1. Put the prototype's HTML pages in a folder under `public/`, for example `public/my-study/`. Sub-folders are fine. The pages must be served from the same origin so the recorder can see clicks and page changes.
 2. Mark areas you want gaze data for with `data-aoi="name"`, such as the navigation, a button or the footer.
-3. Describe the tasks in `src/research/study.js`: the start page, the success page (or `null` for "I'm done") and a time limit.
+3. In `src/research/study.js`, set `siteBase` to the folder's path under `public/`, with a trailing slash (`'my-study/'`). Then describe each task:
+   - `start`: the file the task opens, relative to `siteBase` (`'index.html'`).
+   - `successPage`: the page whose arrival completes the task, as its path under `siteBase` without `.html` (`'checkout/done'` for `public/my-study/checkout/done.html`), or `null` to let the participant click "I'm done". Any visit to that page counts as success, so make it reachable only by doing the task right.
+   - `limitSec`: the time limit in seconds.
 
 Figma prototypes are cross-origin, so the recorder cannot see inside them. Support through Figma's Embed Kit is planned.
 
 ## Session file
 
-JSON, version 1. Times are milliseconds since the session started.
+JSON, version 1. Times are milliseconds since the session started. Pages are named by their path under `siteBase` without `.html`, such as `orders` or `checkout/done`.
 
 | Field | Contents |
 | --- | --- |
-| `study`, `participant`, `startedAt` | Study id and title, random participant code, start time. |
+| `study`, `participant`, `startedAt` | Study id, title and `siteBase`, random participant code, start time. |
 | `viewport` | Size of the test page frame, used to replay positions. |
-| `quality` | `gazeEnabled`, gaze `accuracy` (px and degrees), frames with and without a face, `driftChecks`. |
+| `quality` | `gazeEnabled`, gaze `accuracy` (px and degrees), frames with and without a face, `driftChecks`, and `cameraLost` if the camera stopped during the session. |
 | `baseline` | Median brow-lowering score and face size from calibration. |
 | `tasks` | Id, prompt, start, end and outcome (`success`, `self-reported`, `unverified`, `skipped`, `timeout`). |
-| `events` | `click`, `navigate`, `mutation`, `change`, `focus`, `scroll`, `activity`. |
-| `gaze` | `{ t, page, x, y }` in page document coordinates. |
+| `events` | `click`, `navigate`, `mutation`, `change`, `focus`, `scroll`, `activity`. A click keeps its position and what was clicked: a selector, a label (the element's text; for a form field, its label, never its value) and its area. Typed text and form values are never stored. Throttled events carry `last`, the time of the last event folded into them. |
+| `gaze` | `{ t, page, x, y, sx, sy }`: a position in page document coordinates and the page's scroll offset at that moment. |
 | `face` | `{ t, brow, scale }`. |
-| `aois` | Areas of interest per page, in document coordinates. |
-| `reviews` | Added by the review screen: status and 0–4 severity per moment. |
+| `aois` | Areas of interest per page, in document coordinates. Areas inside a `position: fixed` element are in viewport coordinates and marked `fixed: true`, and gaze is matched to them in the viewport, so scrolling does not move them. |
+| `reviews` | Added by the review screen: status and 0–4 severity per moment id. |
 
 ## Pilot protocol
 

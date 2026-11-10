@@ -6,15 +6,42 @@
 const round = value => Math.round(value)
 const round3 = value => Math.round(value * 1000) / 1000
 
-export const pageId = href => (new URL(href).pathname.split('/').pop() || 'index.html').replace(/\.html$/, '')
+// A page's path under the study's site root, without .html: 'orders',
+// 'cart/index'. The review screen loads `${siteBase}${page}.html` to replay it.
+export function pageId(href, rootPath = '/') {
+  const path = new URL(href).pathname
+  const inside = path.startsWith(rootPath) ? path.slice(rootPath.length) : path.split('/').pop()
+  return (inside === '' || inside.endsWith('/') ? `${inside}index.html` : inside).replace(/\.html$/, '')
+}
 
-function describeTarget(element, doc) {
-  const interactive = element.closest('a, button, input, select, textarea, label, [role="button"], [data-track]')
+const isField = node => /^(INPUT|SELECT|TEXTAREA)$/.test(node.tagName) || Boolean(node.isContentEditable)
+const clean = text => (text || '').trim().replace(/\s+/g, ' ').slice(0, 60)
+
+// What a field is called, never what it holds: its value is what the
+// participant typed or chose.
+function fieldLabel(node) {
+  const label = node.labels?.[0]
+  const labelText = label && [...label.childNodes].filter(child => !(child.nodeType === 1 && isField(child))).map(child => child.textContent).join(' ')
+  return clean(node.getAttribute('aria-label') || clean(labelText) || node.getAttribute('placeholder') || node.getAttribute('name') || node.getAttribute('type') || node.tagName.toLowerCase())
+}
+
+const INTERACTIVE = 'a, button, input, select, textarea, label, [role="button"], [data-track]'
+const selectorOf = node => node.tagName.toLowerCase() + (node.id ? `#${node.id}` : '') + [...node.classList].map(name => `.${name}`).join('')
+
+export function describeTarget(element, doc) {
+  const interactive = element.closest(INTERACTIVE)
   const node = interactive || element
   if (node === doc.body || node === doc.documentElement) return { selector: 'body', label: '', interactive: false, formField: false, aoi: null }
-  const label = (node.getAttribute('aria-label') || node.innerText || node.value || '').trim().replace(/\s+/g, ' ').slice(0, 60)
-  const selector = node.tagName.toLowerCase() + (node.id ? `#${node.id}` : '') + [...node.classList].map(name => `.${name}`).join('')
-  return { selector, label, interactive: Boolean(interactive), formField: /^(INPUT|SELECT|TEXTAREA)$/.test(node.tagName), aoi: node.closest('[data-aoi]')?.dataset.aoi || null }
+  const formField = isField(node)
+  const label = formField ? fieldLabel(node) : clean(node.getAttribute('aria-label') || node.innerText)
+  return { selector: selectorOf(node), label, interactive: Boolean(interactive), formField, aoi: node.closest('[data-aoi]')?.dataset.aoi || null }
+}
+
+// Areas inside a position: fixed element stay put on screen as the page
+// scrolls, so they are kept in viewport coordinates and flagged.
+const isFixed = (element, win) => {
+  for (let node = element; node && node.nodeType === 1; node = node.parentElement) if (win.getComputedStyle(node).position === 'fixed') return true
+  return false
 }
 
 export function createRecorder({ study, participant }) {
@@ -38,12 +65,18 @@ export function createRecorder({ study, participant }) {
   let page = null
   let frame = null
   let detach = () => {}
-  const lastAt = {}
+  let clickedAt = Infinity
+  const kept = {}
+  // A throttled event is folded into the last kept one of its type, which
+  // records its time as `last`, so the end of a burst of input is not lost.
   const push = (type, data = {}, throttleMs = 0) => {
     const t = now()
-    if (throttleMs && t - (lastAt[type] ?? -Infinity) < throttleMs) return
-    lastAt[type] = t
-    session.events.push({ type, t, taskId: task?.id ?? null, ...data })
+    const taskId = task?.id ?? null
+    const previous = kept[type]
+    if (throttleMs && previous && previous.taskId === taskId && t - previous.t < throttleMs) { previous.last = t; return null }
+    kept[type] = { type, t, taskId, ...data }
+    session.events.push(kept[type])
+    return kept[type]
   }
 
   // Call on every iframe load: records the page and wires up its listeners.
@@ -53,21 +86,34 @@ export function createRecorder({ study, participant }) {
     const win = iframe.contentWindow
     const doc = iframe.contentDocument
     if (!win || !doc) return
-    page = pageId(win.location.href)
+    page = pageId(win.location.href, new URL(study.siteBase, document.baseURI).pathname)
     session.viewport = { width: iframe.clientWidth, height: iframe.clientHeight }
     session.aois[page] = [...doc.querySelectorAll('[data-aoi]')].map(element => {
       const rect = element.getBoundingClientRect()
-      return { id: element.dataset.aoi, rect: { x: round(rect.left + win.scrollX), y: round(rect.top + win.scrollY), width: round(rect.width), height: round(rect.height) } }
+      const fixed = isFixed(element, win)
+      const [x, y] = fixed ? [rect.left, rect.top] : [rect.left + win.scrollX, rect.top + win.scrollY]
+      return { id: element.dataset.aoi, rect: { x: round(x), y: round(y), width: round(rect.width), height: round(rect.height) }, ...(fixed && { fixed: true }) }
     })
     push('navigate', { page })
     // pointerdown, not click: disabled buttons swallow click events, and a
     // press on a disabled button is exactly the friction we want to see.
-    const onPointer = event => { if (event.button === 0) push('click', { page, x: round(event.pageX), y: round(event.pageY), target: describeTarget(event.target, doc) }) }
+    const onPointer = event => {
+      if (event.button !== 0) return
+      clickedAt = push('click', { page, x: round(event.pageX), y: round(event.pageY), target: describeTarget(event.target, doc) }).t
+    }
     const onActivity = () => push('activity', {}, 1000)
     const onScroll = () => { push('scroll', { page, x: round(win.scrollX), y: round(win.scrollY) }, 250); onActivity() }
     const onChange = () => push('change')
-    const onFocus = () => push('focus')
-    const observer = new MutationObserver(() => push('mutation', {}, 100))
+    // The selector (built as for clicks) shows whether focus went to the
+    // clicked element itself.
+    const onFocus = event => push('focus', { selector: selectorOf(event.target.closest(INTERACTIVE) || event.target) })
+    // The first DOM change after a click is never throttled away: it may be
+    // the click's only response.
+    const observer = new MutationObserver(() => {
+      const answer = now() > clickedAt
+      if (answer) clickedAt = Infinity
+      push('mutation', {}, answer ? 0 : 100)
+    })
     doc.addEventListener('pointerdown', onPointer, true)
     doc.addEventListener('mousemove', onActivity, true)
     doc.addEventListener('keydown', onActivity, true)
@@ -88,13 +134,14 @@ export function createRecorder({ study, participant }) {
   }
 
   // Gaze arrives in viewport pixels of the whole app; keep only points that
-  // land on the test page, converted to its document coordinates.
+  // land on the test page, converted to its document coordinates, with the
+  // scroll offset so areas on fixed elements can be matched in the viewport.
   const recordGaze = point => {
     if (!task || !frame?.contentWindow || !page) return
     const rect = frame.getBoundingClientRect()
     if (point.x < rect.left || point.x > rect.right || point.y < rect.top || point.y > rect.bottom) return
     const win = frame.contentWindow
-    session.gaze.push({ t: now(), page, x: round(point.x - rect.left + win.scrollX), y: round(point.y - rect.top + win.scrollY) })
+    session.gaze.push({ t: now(), page, x: round(point.x - rect.left + win.scrollX), y: round(point.y - rect.top + win.scrollY), sx: round(win.scrollX), sy: round(win.scrollY) })
   }
 
   const recordFace = sample => {

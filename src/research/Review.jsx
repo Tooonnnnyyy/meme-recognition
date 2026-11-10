@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { describeSignal, detectSignals, findCandidates, sessionFixations, STRONG, MEDIUM, WEAK } from './signals'
 import { ThemeToggle } from '../ThemeToggle'
 
 const BASE = import.meta.env.BASE_URL
 const clock = ms => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
 const OUTCOME_CLASS = { success: 'ok', 'self-reported': 'ok', unverified: 'bad', skipped: 'bad', timeout: 'bad' }
+// Nielsen's severity scale: a level is its index.
+const SEVERITY = ['not a problem', 'cosmetic', 'minor', 'major', 'catastrophe']
 
 function analyze(session) {
   const signals = detectSignals(session)
@@ -25,17 +27,65 @@ function viewAt(session, t) {
   return { page: navigation.page, scrollX: scroll?.x || 0, scrollY: scroll?.y || 0 }
 }
 
+// A file is checked field by field before it is scored or drawn, so a damaged
+// or hand-edited file gets a message instead of breaking the page.
+class FileError extends Error {}
+const isNumber = value => typeof value === 'number' && Number.isFinite(value)
+const isText = value => typeof value === 'string'
+const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+const optional = check => value => value == null || check(value)
+const listOf = check => value => Array.isArray(value) && value.every(item => isRecord(item) && check(item))
+// The site folder and page names become the replay frame's URL, so they must
+// stay inside the site.
+const isPath = value => isText(value) && !/^\/|\.\.|:|\\|\/\//.test(value)
+const isAccuracy = accuracy => isRecord(accuracy) && isNumber(accuracy.meanPx) && isNumber(accuracy.meanDegrees)
+const EVENT_FIELDS = {
+  click: event => isPath(event.page) && isNumber(event.x) && isNumber(event.y) && isRecord(event.target) && isText(event.target.selector),
+  navigate: event => isPath(event.page),
+  scroll: event => isPath(event.page) && isNumber(event.x) && isNumber(event.y),
+}
+const FIELDS = {
+  study: study => isRecord(study) && isText(study.title) && isPath(study.siteBase),
+  participant: isText,
+  viewport: optional(viewport => isRecord(viewport) && isNumber(viewport.width) && isNumber(viewport.height)),
+  quality: quality => isRecord(quality) && typeof quality.gazeEnabled === 'boolean' && isNumber(quality.frames) && isNumber(quality.faceFrames)
+    && optional(listOf(check => isNumber(check.errorPx)))(quality.driftChecks)
+    && (quality.gazeEnabled ? isAccuracy : optional(isAccuracy))(quality.accuracy),
+  baseline: optional(baseline => isRecord(baseline) && isNumber(baseline.brow) && isNumber(baseline.scale)),
+  tasks: listOf(task => isText(task.id) && isNumber(task.start) && optional(isNumber)(task.end) && optional(isText)(task.outcome) && optional(isText)(task.prompt)),
+  events: listOf(event => isText(event.type) && isNumber(event.t) && optional(isText)(event.taskId) && optional(isNumber)(event.last) && (EVENT_FIELDS[event.type]?.(event) ?? true)),
+  gaze: optional(listOf(point => isNumber(point.t) && isText(point.page) && isNumber(point.x) && isNumber(point.y) && optional(isNumber)(point.sx) && optional(isNumber)(point.sy))),
+  face: optional(listOf(sample => isNumber(sample.t) && isNumber(sample.brow) && isNumber(sample.scale))),
+  aois: optional(aois => isRecord(aois) && Object.values(aois).every(listOf(area => isText(area.id) && isRecord(area.rect) && ['x', 'y', 'width', 'height'].every(key => isNumber(area.rect[key]))))),
+  reviews: optional(reviews => isRecord(reviews) && Object.values(reviews).every(review => isRecord(review) && ['open', 'confirmed', 'rejected'].includes(review.status)
+    && optional(level => Number.isInteger(level) && level >= 0 && level < SEVERITY.length)(review.severity))),
+}
+
 function readSession(text) {
   const data = JSON.parse(text)
-  if (data?.version !== 1 || !Array.isArray(data.tasks) || !Array.isArray(data.events)) throw new Error('This is not a Usability Copilot session file.')
+  if (!isRecord(data) || data.version !== 1) throw new FileError('This is not a Usability Copilot session file.')
+  const field = Object.keys(FIELDS).find(name => !FIELDS[name](data[name]))
+  if (field) throw new FileError(`This session file cannot be shown: its “${field}” field is ${data[field] === undefined ? 'missing' : 'not in the expected format'}.`)
   return data
+}
+
+// Scored when it is opened, so a file that fails here never replaces the one
+// on screen.
+const opened = session => ({ session, analysis: analyze(session) })
+
+// Keeps a rendering error in one file from blanking the page. It sits below
+// Review, so the reviews held there survive and can still be exported.
+class Guard extends React.Component {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() { return this.state.failed ? this.props.fallback : this.props.children }
 }
 
 function Replay({ session, candidate, fixations }) {
   const boxRef = useRef(null)
   const frameRef = useRef(null)
   const [width, setWidth] = useState(800)
-  const viewport = session.viewport || { width: 1280, height: 720 }
+  const viewport = session.viewport?.width > 0 && session.viewport?.height > 0 ? session.viewport : { width: 1280, height: 720 }
   const view = viewAt(session, (candidate.start + candidate.end) / 2) || viewAt(session, candidate.end)
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
@@ -43,13 +93,17 @@ function Replay({ session, candidate, fixations }) {
     return () => observer.disconnect()
   }, [])
   if (!view) return <div className="replay empty" ref={boxRef}><p className="muted">No page was open at this moment.</p></div>
+  // The frame scrolls only when it loads. With the session in its key, another
+  // file's moment on the same page loads it afresh instead of keeping the old
+  // scroll position.
+  const frameKey = `${session.participant}-${session.startedAt}-${view.page}-${candidate.id}`
   const scale = width / viewport.width
   const inWindow = item => item.page === view.page && item.t >= candidate.start && item.t <= candidate.end
   const spots = fixations.filter(fixation => fixation.page === view.page && fixation.end >= candidate.start && fixation.start <= candidate.end)
   const clicks = session.events.filter(event => event.type === 'click' && inWindow(event))
   return <div className="replay" ref={boxRef} style={{ height: `${viewport.height * scale}px` }}>
     <div className="replay-stage" style={{ width: `${viewport.width}px`, height: `${viewport.height}px`, transform: `scale(${scale})` }}>
-      <iframe ref={frameRef} key={`${view.page}-${candidate.id}`} title="Page at this moment" tabIndex={-1} src={`${BASE}${session.study.siteBase}${view.page}.html`} onLoad={() => frameRef.current?.contentWindow?.scrollTo(view.scrollX, view.scrollY)} />
+      <iframe ref={frameRef} key={frameKey} title="Page at this moment" tabIndex={-1} src={`${BASE}${session.study.siteBase}${view.page}.html`} onLoad={() => frameRef.current?.contentWindow?.scrollTo(view.scrollX, view.scrollY)} />
       <svg className="replay-overlay" width={viewport.width} height={viewport.height} aria-hidden="true">
         {/* heat spots sit on the tested website, which is light in both themes */}
         <defs><radialGradient id="heat-spot"><stop offset="0" stopColor="#ff5a28" stopOpacity=".5" /><stop offset="1" stopColor="#ff5a28" stopOpacity="0" /></radialGradient></defs>
@@ -84,85 +138,137 @@ function Timeline({ session, analysis, selected, onSelect }) {
   </div>
 }
 
+// Everything drawn from one file, inside the Guard.
+function SessionView({ session, analysis, reviews, selectedId, onSelect, onReview }) {
+  const selected = analysis.candidates.find(candidate => candidate.id === selectedId) || analysis.candidates[0] || null
+  const { quality } = session
+  const facePercent = quality.frames ? Math.round((quality.faceFrames / quality.frames) * 100) : null
+  const drift = quality.driftChecks?.length ? Math.round(quality.driftChecks.reduce((sum, check) => sum + check.errorPx, 0) / quality.driftChecks.length) : null
+  const reviewed = analysis.candidates.filter(candidate => ['confirmed', 'rejected'].includes(reviews[candidate.id]?.status)).length
+  // Reviews saved against moments this version no longer flags.
+  const ids = new Set(analysis.candidates.map(candidate => candidate.id))
+  const hidden = Object.keys(reviews).filter(id => !ids.has(id)).length
+
+  return <div className="review">
+    <section className="stage">
+      <div className="quality">
+        <span className="kicker">Data quality</span>
+        <span className={`chip ${quality.gazeEnabled ? 'live' : ''}`}>{quality.gazeEnabled ? `GAZE ${quality.accuracy.meanDegrees.toFixed(1)}° · PASS` : 'GAZE OFF'}</span>
+        {facePercent !== null && <span className="chip">{facePercent}% FRAMES WITH FACE</span>}
+        {drift !== null && <span className="chip">DRIFT CHECK ×{quality.driftChecks.length} · {drift} PX</span>}
+        <span className="chip">NO VIDEO STORED</span>
+      </div>
+      {selected ? <Replay session={session} candidate={selected} fixations={analysis.fixations} /> : <div className="replay empty"><p className="muted">No moments were flagged in this session.</p></div>}
+      <Timeline session={session} analysis={analysis} selected={selected} onSelect={onSelect} />
+    </section>
+    <aside className="sidebar">
+      <div className="sidebar-head"><span className="kicker">Candidate moments</span><h3>{analysis.candidates.length} flagged · {reviewed} reviewed</h3>
+        {hidden > 0 && <span className="muted small">{hidden} saved {hidden === 1 ? 'review does' : 'reviews do'} not match any flagged moment. {hidden === 1 ? 'It stays' : 'They stay'} in the exported file.</span>}</div>
+      <div className="cands">
+        {analysis.candidates.map(candidate => {
+          const review = reviews[candidate.id] || {}
+          const task = session.tasks.find(item => item.id === candidate.taskId)
+          const status = review.status === 'confirmed' ? `CONFIRMED${review.severity == null ? '' : ` · SEVERITY ${review.severity}`}` : review.status === 'rejected' ? 'REJECTED' : `${candidate.confidence.toUpperCase()} CONFIDENCE`
+          return <article key={candidate.id} className={`card ${selected?.id === candidate.id ? 'active' : ''} ${review.status === 'rejected' ? 'is-rejected' : ''}`} onClick={() => onSelect(candidate.id)}>
+            <div className="card-top"><b className="mono">{clock(candidate.start)}–{clock(candidate.end)} · {candidate.taskId}</b><span className={`chip ${review.status === 'confirmed' ? 'live' : ''}`}>{status}</span></div>
+            {task && <p className="muted small">{task.prompt}</p>}
+            <ul className="evidence">{candidate.signals.map((signal, index) => <li key={index} className={signal.strength}>{describeSignal(signal)}</li>)}</ul>
+            <div className="card-actions" onClick={event => event.stopPropagation()}>
+              <button className={`btn small-btn ${review.status === 'confirmed' ? 'primary' : 'ghost'}`} onClick={() => onReview(candidate, { status: 'confirmed' })}>Confirm</button>
+              <button className={`btn small-btn ${review.status === 'rejected' ? 'secondary' : 'ghost'}`} onClick={() => onReview(candidate, { status: 'rejected', severity: null })}>Reject</button>
+              <div className="severity" role="group" aria-label="Severity, 0 to 4">{SEVERITY.map((meaning, level) => <button key={level} disabled={review.status !== 'confirmed'} aria-pressed={review.severity === level} aria-label={`${level}, ${meaning}`} title={`${level}: ${meaning}`} className={review.severity === level ? 'on' : ''} onClick={() => onReview(candidate, { severity: level })}>{level}</button>)}</div>
+            </div>
+          </article>
+        })}
+        {!analysis.candidates.length && <p className="muted small">Nothing was flagged. Check the data quality chips: with gaze off, only click and page signals are available.</p>}
+      </div>
+      <p className="muted small sidebar-note">Severity uses Nielsen’s 0–4 scale (0 not a problem, 4 catastrophe). Flags are evidence for you to judge, not findings.</p>
+    </aside>
+  </div>
+}
+
 export function Review({ initialSession }) {
-  const [session, setSession] = useState(initialSession)
-  const [error, setError] = useState('')
+  const [open, setOpen] = useState(() => (initialSession ? opened(initialSession) : null))
   const [reviews, setReviews] = useState(initialSession?.reviews || {})
   const [selectedId, setSelectedId] = useState(null)
-  const analysis = useMemo(() => (session ? analyze(session) : null), [session])
-  const selected = analysis?.candidates.find(candidate => candidate.id === selectedId) || analysis?.candidates[0] || null
+  const [error, setError] = useState('')
+  // Reviews changed since the file was opened or exported, and a checked file
+  // waiting for the researcher to say what happens to them.
+  const [unexported, setUnexported] = useState(false)
+  const [pending, setPending] = useState(null)
+  const [loads, setLoads] = useState(0)
+  const inputRef = useRef(null)
+  const { session, analysis } = open || {}
 
+  useEffect(() => {
+    if (!unexported) return undefined
+    const warn = event => { event.preventDefault(); event.returnValue = '' }
+    addEventListener('beforeunload', warn)
+    return () => removeEventListener('beforeunload', warn)
+  }, [unexported])
+
+  const commit = next => {
+    setOpen(next)
+    setReviews(next.session.reviews || {})
+    setSelectedId(null)
+    setUnexported(false)
+    setPending(null)
+    setLoads(count => count + 1)
+  }
   const load = file => {
     const reader = new FileReader()
     reader.onload = () => {
+      let next
       try {
-        const data = readSession(reader.result)
-        setSession(data)
-        setReviews(data.reviews || {})
-        setSelectedId(null)
-        setError('')
+        next = opened(readSession(reader.result))
       } catch (problem) {
-        setError(problem instanceof SyntaxError ? 'That file is not valid JSON.' : problem.message)
+        setError(problem instanceof SyntaxError ? 'That file is not valid JSON.' : problem instanceof FileError ? problem.message : 'That file could not be read. It may be damaged or from another version.')
+        return
       }
+      setError('')
+      if (unexported) setPending(next)
+      else commit(next)
     }
     reader.readAsText(file)
+  }
+  const cancelLoad = () => {
+    setPending(null)
+    inputRef.current?.focus()
   }
   const exportFile = () => {
     const blob = new Blob([JSON.stringify({ ...session, reviews })], { type: 'application/json' })
     const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `usability-session-${session.participant}-reviewed.json` })
     link.click()
     setTimeout(() => URL.revokeObjectURL(link.href), 1000)
+    setUnexported(false)
   }
-  const setReview = (id, change) => setReviews(current => ({ ...current, [id]: { status: 'open', severity: null, ...current[id], ...change } }))
+  // Each review keeps the moment it was made on, so an exported file still
+  // says what was judged if the moments are scored differently later.
+  const setReview = (candidate, change) => {
+    const moment = { taskId: candidate.taskId, start: candidate.start, end: candidate.end, signals: candidate.signals.map(signal => signal.kind) }
+    setReviews(current => ({ ...current, [candidate.id]: { status: 'open', severity: null, ...current[candidate.id], ...change, moment } }))
+    setUnexported(true)
+  }
 
-  const picker = <label className="btn ghost file-button" htmlFor="session-file">{session ? 'Load another file' : 'Choose a session file'}<input id="session-file" type="file" accept="application/json,.json" onChange={event => event.target.files[0] && load(event.target.files[0])} /></label>
+  // The value is cleared so that choosing the same file again, after Cancel, still loads it.
+  const picker = <label className="btn ghost file-button" htmlFor="session-file">{session ? 'Load another file' : 'Choose a session file'}<input ref={inputRef} id="session-file" type="file" accept="application/json,.json" onChange={event => { const [file] = event.target.files; event.target.value = ''; if (file) load(file) }} /></label>
 
   if (!session) return <div className="screen">
     <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Researcher review</small></div></div><ThemeToggle /></header>
-    <main className="center-note"><span className="kicker">Review a session</span><h2>Load a session file</h2><p className="muted">Participants download a results file at the end of a session. Load it here to see flagged moments. Files are read in this browser and not uploaded.</p>{picker}{error && <p className="warning">{error}</p>}</main>
+    <main className="center-note"><span className="kicker">Review a session</span><h2>Load a session file</h2><p className="muted">Participants download a results file at the end of a session. Load it here to see flagged moments. Files are read in this browser and not uploaded.</p>{picker}{error && <p className="warning" role="alert">{error}</p>}</main>
   </div>
-
-  const { quality } = session
-  const facePercent = quality.frames ? Math.round((quality.faceFrames / quality.frames) * 100) : null
-  const drift = quality.driftChecks?.length ? Math.round(quality.driftChecks.reduce((sum, check) => sum + check.errorPx, 0) / quality.driftChecks.length) : null
-  const reviewed = analysis.candidates.filter(candidate => ['confirmed', 'rejected'].includes(reviews[candidate.id]?.status)).length
 
   return <div className="screen review-screen">
     <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Session review · {session.participant}</strong><small>{session.study.title} · {session.tasks.length} tasks · {clock(analysis.duration)}</small></div></div><div className="actions">{picker}<button className="btn secondary" onClick={exportFile}>Export reviewed file</button><ThemeToggle /></div></header>
-    {error && <p className="warning banner">{error}</p>}
-    <div className="review">
-      <section className="stage">
-        <div className="quality">
-          <span className="kicker">Data quality</span>
-          <span className={`chip ${quality.gazeEnabled ? 'live' : ''}`}>{quality.gazeEnabled ? `GAZE ${quality.accuracy.meanDegrees.toFixed(1)}° · PASS` : 'GAZE OFF'}</span>
-          {facePercent !== null && <span className="chip">{facePercent}% FRAMES WITH FACE</span>}
-          {drift !== null && <span className="chip">DRIFT CHECK ×{quality.driftChecks.length} · {drift} PX</span>}
-          <span className="chip">NO VIDEO STORED</span>
-        </div>
-        {selected ? <Replay session={session} candidate={selected} fixations={analysis.fixations} /> : <div className="replay empty"><p className="muted">No moments were flagged in this session.</p></div>}
-        <Timeline session={session} analysis={analysis} selected={selected} onSelect={setSelectedId} />
-      </section>
-      <aside className="sidebar">
-        <div className="sidebar-head"><span className="kicker">Candidate moments</span><h3>{analysis.candidates.length} flagged · {reviewed} reviewed</h3></div>
-        <div className="cands">
-          {analysis.candidates.map(candidate => {
-            const review = reviews[candidate.id] || {}
-            const task = session.tasks.find(item => item.id === candidate.taskId)
-            return <article key={candidate.id} className={`card ${selected?.id === candidate.id ? 'active' : ''} ${review.status === 'rejected' ? 'is-rejected' : ''}`} onClick={() => setSelectedId(candidate.id)}>
-              <div className="card-top"><b className="mono">{clock(candidate.start)}–{clock(candidate.end)} · {candidate.taskId}</b><span className={`chip ${review.status === 'confirmed' ? 'live' : ''}`}>{review.status === 'confirmed' ? 'CONFIRMED' : review.status === 'rejected' ? 'REJECTED' : `${candidate.confidence.toUpperCase()} CONFIDENCE`}</span></div>
-              {task && <p className="muted small">{task.prompt}</p>}
-              <ul className="evidence">{candidate.signals.map((signal, index) => <li key={index} className={signal.strength}>{describeSignal(signal)}</li>)}</ul>
-              <div className="card-actions" onClick={event => event.stopPropagation()}>
-                <button className={`btn small-btn ${review.status === 'confirmed' ? 'primary' : 'ghost'}`} onClick={() => setReview(candidate.id, { status: 'confirmed' })}>Confirm</button>
-                <button className={`btn small-btn ${review.status === 'rejected' ? 'secondary' : 'ghost'}`} onClick={() => setReview(candidate.id, { status: 'rejected', severity: null })}>Reject</button>
-                <div className="severity" role="group" aria-label="Severity, 0 to 4">{[0, 1, 2, 3, 4].map(level => <button key={level} disabled={review.status !== 'confirmed'} className={review.severity === level ? 'on' : ''} onClick={() => setReview(candidate.id, { severity: level })}>{level}</button>)}</div>
-              </div>
-            </article>
-          })}
-          {!analysis.candidates.length && <p className="muted small">Nothing was flagged. Check the data quality chips: with gaze off, only click and page signals are available.</p>}
-        </div>
-        <p className="muted small sidebar-note">Severity uses Nielsen’s 0–4 scale (0 not a problem, 4 catastrophe). Flags are evidence for you to judge, not findings.</p>
-      </aside>
-    </div>
+    {error && <p className="warning banner" role="alert">{error}</p>}
+    {pending && <div className="warning banner actions" role="group" aria-labelledby="replace-note" onKeyDown={event => event.key === 'Escape' && cancelLoad()}>
+      <span id="replace-note">Your reviews for {session.participant} are not exported yet. Loading {pending.session.participant} will replace them.</span>
+      <button className="btn primary small-btn" autoFocus onClick={() => { exportFile(); commit(pending) }}>Export, then load</button>
+      <button className="btn danger small-btn" onClick={() => commit(pending)}>Load without exporting</button>
+      <button className="btn ghost small-btn" onClick={cancelLoad}>Cancel</button>
+    </div>}
+    <Guard key={loads} fallback={<main className="center-note" role="alert"><span className="kicker">Review a session</span><h2>This file could not be shown</h2><p className="muted">It may be damaged or from another version. Any reviews you made are still here: export them, or load another file.</p></main>}>
+      <SessionView session={session} analysis={analysis} reviews={reviews} selectedId={selectedId} onSelect={setSelectedId} onReview={setReview} />
+    </Guard>
   </div>
 }

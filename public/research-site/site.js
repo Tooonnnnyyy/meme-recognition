@@ -8,5 +8,7 @@ document.querySelectorAll('[data-track]').forEach(button => {
 const policy = document.getElementById('policy')
 const submit = document.getElementById('submit-return')
 if (policy && submit) policy.addEventListener('change', () => { submit.disabled = !policy.checked })
+// Each order has its own confirmation page, so the study can tell whether the
+// right order was returned.
 const form = document.getElementById('return-form')
-if (form) form.addEventListener('submit', event => { event.preventDefault(); location.href = 'return-done.html' })
+if (form) form.addEventListener('submit', event => { event.preventDefault(); location.href = `return-done-${document.getElementById('order').value}.html` })

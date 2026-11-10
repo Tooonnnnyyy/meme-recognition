@@ -24,7 +24,8 @@ function segments(points, maxGapMs) {
   return result
 }
 
-// points: [{ t (ms), x, y }] in time order. Returns [{ start, end, x, y, samples }].
+// points: [{ t (ms), x, y, sx?, sy? }] in time order, where sx, sy is the page's
+// scroll offset at that moment. Returns [{ start, end, x, y, sx, sy, samples }].
 export function detectFixations(points, { dispersionPx = 100, minDurationMs = 120, maxGapMs = 250 } = {}) {
   const fixations = []
   segments(points, maxGapMs).forEach(segment => {
@@ -39,23 +40,27 @@ export function detectFixations(points, { dispersionPx = 100, minDurationMs = 12
       }
       while (last + 1 < segment.length && dispersion(segment.slice(first, last + 2)) <= dispersionPx) last += 1
       const window = segment.slice(first, last + 1)
-      fixations.push({
-        start: segment[first].t,
-        end: segment[last].t,
-        x: window.reduce((sum, point) => sum + point.x, 0) / window.length,
-        y: window.reduce((sum, point) => sum + point.y, 0) / window.length,
-        samples: window.length,
-      })
+      const mean = key => window.reduce((sum, point) => sum + (point[key] || 0), 0) / window.length
+      fixations.push({ start: segment[first].t, end: segment[last].t, x: mean('x'), y: mean('y'), sx: mean('sx'), sy: mean('sy'), samples: window.length })
       first = last + 1
     }
   })
   return fixations
 }
 
-// The area of interest a point falls in, after growing every area by
-// marginPx to absorb gaze error. Overlaps go to the smallest area.
+// The area of interest a point falls in. If the point is inside one or more
+// areas, the smallest wins. Only when it is inside none do the areas grow by
+// marginPx to absorb gaze error, and the nearest wins. Areas on fixed
+// elements (fixed: true) are in viewport coordinates, so the point is moved
+// there with its scroll offset (sx, sy).
 export function aoiAt(point, aois, marginPx = 0) {
-  const hits = aois.filter(({ rect }) => point.x >= rect.x - marginPx && point.x <= rect.x + rect.width + marginPx && point.y >= rect.y - marginPx && point.y <= rect.y + rect.height + marginPx)
-  hits.sort((a, b) => a.rect.width * a.rect.height - b.rect.width * b.rect.height)
+  const hits = aois.map(({ id, rect, fixed }) => {
+    const x = fixed ? point.x - (point.sx || 0) : point.x
+    const y = fixed ? point.y - (point.sy || 0) : point.y
+    const dx = Math.max(rect.x - x, 0, x - rect.x - rect.width)
+    const dy = Math.max(rect.y - y, 0, y - rect.y - rect.height)
+    return { id, gap: Math.hypot(dx, dy), within: dx <= marginPx && dy <= marginPx, area: rect.width * rect.height }
+  }).filter(hit => hit.within)
+  hits.sort((a, b) => a.gap - b.gap || a.area - b.area)
   return hits[0]?.id || null
 }

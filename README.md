@@ -37,7 +37,7 @@ Gesture Meme Studio turns a webcam into an expressive controller. Hold an illust
 `research.html` turns the same on-device vision engine into a usability-testing assistant. A participant works through tasks on a website while the page records clicks, page changes, approximate gaze areas and facial movement. Afterwards it flags the moments where they probably got stuck, so a researcher reviews those instead of a whole recording.
 
 - **Participant flow:** consent, then a 1-minute calibration whose accuracy is measured on separate dots, then the tasks, then the participant downloads or deletes a results file. Gaze is used only when validation error is at most 3°; the camera is optional.
-- **Signals:** unanswered clicks, rage clicks, going round in circles between pages, timeouts and idle periods (strong or medium), plus searching gaze and held brow lowering or leaning in (weak, never used alone). Emotions are never inferred.
+- **Signals:** unanswered clicks, rage clicks, going round in circles between pages and timeouts (strong); idle periods and searching gaze (medium); held brow lowering or leaning in (weak). A strong signal flags a moment on its own; medium and weak ones only together. Emotions are never inferred.
 - **Researcher review:** open `research.html#review`, load a session file, and confirm or reject each flagged moment with a 0–4 severity. Files are read locally.
 - **Demo:** a fictional shop in `public/research-site/` contains three planted usability problems for the demo study.
 
@@ -116,7 +116,7 @@ Meme lookalike turns each face into 43 blendshape scores (MediaPipe’s 52 minus
 
 Camera frames stay in the browser. This project has no backend, analytics, recording, upload, persistence, or cloud inference path. The calibration baseline and any **Use my face** references live in memory for the current page visit only. **Stop camera** stops the media tracks and closes the vision tasks.
 
-Usability Copilot keeps the same rule: no video or face images are stored. Its session file holds timestamps, clicks, page names, gaze coordinates and two face numbers per frame (brow lowering and face size). The participant decides whether to download and share it, and can stop and delete everything at any time.
+Usability Copilot keeps the same rule: no video or face images are stored. Its session file holds timestamps, clicks, page names, gaze coordinates and two face numbers per frame (brow lowering and face size). Nothing typed into the tested site is stored. The participant decides whether to download and share it, and can stop and delete everything at any time.
 
 ## Repository security
 

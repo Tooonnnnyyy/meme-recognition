@@ -3,12 +3,19 @@ import { DEGREES_PER_CSS_PX, fitGazeModel, gazeFeatures, measureAccuracy } from 
 import { GAZE_THRESHOLD_DEGREES } from './study'
 
 // Nine dots to fit the gaze model, then nine different dots to measure how
-// accurate it is. Accuracy is always measured on points the model never saw.
+// accurate it is. Accuracy is always measured on points the model never saw,
+// out to the same edges: the model is least accurate there, and that is where
+// pages keep their menus and footers.
 const CALIBRATION_POINTS = [[0.08, 0.12], [0.5, 0.12], [0.92, 0.12], [0.08, 0.5], [0.5, 0.5], [0.92, 0.5], [0.08, 0.88], [0.5, 0.88], [0.92, 0.88]]
-const VALIDATION_POINTS = [[0.28, 0.28], [0.72, 0.28], [0.5, 0.36], [0.3, 0.55], [0.7, 0.55], [0.4, 0.45], [0.28, 0.75], [0.64, 0.76], [0.58, 0.64]]
+const VALIDATION_POINTS = [[0.27, 0.12], [0.73, 0.12], [0.08, 0.31], [0.92, 0.31], [0.27, 0.5], [0.08, 0.69], [0.92, 0.69], [0.27, 0.88], [0.73, 0.88]]
 const COLLECT_MS = 900
 const MIN_SAMPLES = 6
 const MAX_ATTEMPTS = 3
+// No camera frame for this long means the camera or the vision engine stopped.
+const STALL_MS = 3000
+const STALL_WARNING = 'The camera stopped sending pictures. Click the dot to try again, or skip gaze and continue.'
+// A baseline from fewer face frames is too noisy to judge brow and lean by.
+const BASELINE_SAMPLES = 15
 
 const median = values => {
   const sorted = [...values].sort((a, b) => a - b)
@@ -20,15 +27,18 @@ export const faceSample = (frame, features) => {
   return { brow: ((scores.get('browDownLeft') || 0) + (scores.get('browDownRight') || 0)) / 2, scale: features[16] }
 }
 
-const freshState = attempt => ({ phase: 'calibrate', index: 0, attempt, calibration: [], validation: [], brow: [], scale: [], collect: null, warning: '', faceSeen: false, model: null, accuracy: null })
+const freshState = attempt => ({ phase: 'calibrate', index: 0, attempt, calibration: [], validation: [], brow: [], scale: [], collect: null, warning: '', faceSeen: false, stalled: false, model: null, accuracy: null })
 
 export function Calibration({ subscribe, aspect, onDone }) {
   const state = useRef(freshState(1))
+  const lastFrame = useRef(performance.now())
   const [, render] = useReducer(count => count + 1, 0)
   const points = state.current.phase === 'validate' ? VALIDATION_POINTS : CALIBRATION_POINTS
 
   useEffect(() => subscribe(frame => {
+    lastFrame.current = performance.now()
     const current = state.current
+    if (current.stalled) { current.stalled = false; current.warning = ''; render() }
     const features = gazeFeatures(frame.faceResult, aspect())
     if (Boolean(features) !== current.faceSeen) { current.faceSeen = Boolean(features); render() }
     if (features && current.phase === 'calibrate') {
@@ -60,29 +70,47 @@ export function Calibration({ subscribe, aspect, onDone }) {
     render()
   }), [subscribe, aspect])
 
+  // A dot only finishes when a frame arrives. If frames stop, end the dot and
+  // say so, so the participant can click again or skip.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const current = state.current
+      const now = performance.now()
+      const stuck = current.collect && now - Math.max(lastFrame.current, current.collect.start) > STALL_MS
+      if (!stuck && (current.stalled || now - lastFrame.current < STALL_MS)) return
+      if (stuck) current.collect = null
+      current.stalled = true
+      current.warning = STALL_WARNING
+      render()
+    }, 500)
+    return () => clearInterval(timer)
+  }, [])
+
   const clickDot = event => {
     if (state.current.collect) return
     const rect = event.currentTarget.getBoundingClientRect()
-    state.current.collect = { target: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, until: performance.now() + COLLECT_MS, samples: [] }
+    const now = performance.now()
+    state.current.collect = { target: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, start: now, until: now + COLLECT_MS, samples: [] }
     render()
   }
-  const finish = passed => onDone({
-    model: state.current.model,
-    accuracy: state.current.accuracy,
-    passed,
-    baseline: state.current.brow.length ? { brow: median(state.current.brow), scale: median(state.current.scale) } : null,
-  })
+  // null when too few face frames were seen; the recorder then takes the
+  // baseline from the first task frames.
+  const baseline = () => {
+    const { brow, scale } = state.current
+    return brow.length >= BASELINE_SAMPLES ? { brow: median(brow), scale: median(scale) } : null
+  }
+  const finish = passed => onDone({ model: state.current.model, accuracy: state.current.accuracy, passed, baseline: baseline() })
   const retry = () => { state.current = freshState(state.current.attempt + 1); render() }
-  const skip = () => onDone({ model: null, accuracy: { meanPx: 0, meanDegrees: 0 }, passed: false, baseline: state.current.brow.length ? { brow: median(state.current.brow), scale: median(state.current.scale) } : null })
+  const skip = () => onDone({ model: null, accuracy: { meanPx: 0, meanDegrees: 0 }, passed: false, baseline: baseline() })
 
   const current = state.current
   if (current.phase === 'result') {
     const { accuracy } = current
     const passed = accuracy.meanDegrees <= GAZE_THRESHOLD_DEGREES
+    const canRetry = current.attempt < MAX_ATTEMPTS
     const percent = Math.min(100, (accuracy.meanDegrees / (GAZE_THRESHOLD_DEGREES * 1.5)) * 100)
     const tip = (GAZE_THRESHOLD_DEGREES / (GAZE_THRESHOLD_DEGREES * 1.5)) * 100
-    return <div className="calibration">
-      <div className="calibration-head"><span className="kicker">Step 2 of 3 · Check accuracy</span><h2>{passed ? 'Accuracy check passed' : 'Accuracy is too low for gaze'}</h2><p className="muted">We compared {accuracy.points.length} new dots with where the camera thinks you looked.</p></div>
+    return <div className="calibration is-result">
       <svg className="vectors" width="100%" height="100%" aria-hidden="true">
         {accuracy.points.map(({ target, estimate }, index) => <g key={index}>
           <path d={`M${target.x - 12} ${target.y}h24M${target.x} ${target.y - 12}v24`} className="cross" />
@@ -90,31 +118,36 @@ export function Calibration({ subscribe, aspect, onDone }) {
           <circle cx={estimate.x} cy={estimate.y} r="5" className="estimate" />
         </g>)}
       </svg>
-      <div className="legend"><span><i className="swatch cross-swatch" />dot you looked at</span><span><i className="swatch estimate-swatch" />camera estimate</span><span><i className="swatch error-swatch" />error</span></div>
       <div className="panel result-panel">
-        <span className="kicker">Gaze accuracy</span>
+        <span className="kicker">Step 2 of 3 · Check accuracy</span>
+        <h2>{passed ? 'Accuracy check passed' : 'Accuracy is too low for gaze'}</h2>
+        <p className="muted small">We compared {accuracy.points.length} new dots with where the camera thinks you looked.</p>
         <div className={`big ${passed ? '' : 'is-bad'}`}>{accuracy.meanDegrees.toFixed(1)}°</div>
         <span className="mono small muted">≈ {Math.round(accuracy.meanPx)} px average error · threshold {GAZE_THRESHOLD_DEGREES.toFixed(1)}° ({Math.round(GAZE_THRESHOLD_DEGREES / DEGREES_PER_CSS_PX)} px)</span>
         <div className="meter"><i style={{ width: `${percent}%` }} className={passed ? '' : 'is-bad'} /><b style={{ left: `${tip}%` }} /></div>
-        <p className="small">{passed ? `Areas smaller than about ${Math.round(accuracy.meanPx * 2)} px will be merged for analysis.` : 'Clicks, page changes and facial movement still work without gaze. You can try once more with your face centred and evenly lit.'}</p>
+        <p className="small">{passed ? `Areas smaller than about ${Math.round(accuracy.meanPx * 2)} px will be merged for analysis.` : `Clicks, page changes and facial movement still work without gaze.${canRetry ? ' You can try again with your face centred and evenly lit.' : ''}`}</p>
+        <div className="legend"><span><i className="swatch cross-swatch" />dot you looked at</span><span><i className="swatch estimate-swatch" />camera estimate</span><span><i className="swatch error-swatch" />error</span></div>
         <div className="actions">
           {passed ? <button className="btn primary" onClick={() => finish(true)}>Start the tasks</button> : <button className="btn primary" onClick={() => finish(false)}>Continue without gaze</button>}
-          {current.attempt < MAX_ATTEMPTS && <button className="btn ghost" onClick={retry}>Recalibrate</button>}
+          {canRetry && <button className="btn ghost" onClick={retry}>Recalibrate</button>}
         </div>
       </div>
     </div>
   }
 
   const [px, py] = points[current.index]
-  return <div className="calibration">
+  const [chipClass, chipText] = current.stalled ? ['strong', 'CAMERA NOT RESPONDING'] : current.faceSeen ? ['live', 'FACE FOUND'] : ['strong', 'LOOKING FOR YOUR FACE']
+  // The instructions and camera preview move to the bottom while the dot is
+  // in the top half, so they never cover it.
+  return <div className={`calibration ${py < 0.5 ? 'is-dot-high' : ''}`}>
+    <button className={`calibration-dot ${current.collect ? 'is-collecting' : ''}`} style={{ left: `${px * 100}%`, top: `${py * 100}%` }} onClick={clickDot} aria-label={`Calibration dot ${current.index + 1}`} />
     <div className="calibration-head">
       <span className="kicker">Step 2 of 3 · {current.phase === 'validate' ? 'Check accuracy' : 'Calibrate'} · dot {current.index + 1} of {points.length}</span>
       <h2>Look at the dot, then click it</h2>
       <p className="muted">Keep looking at it until it shrinks away.{current.attempt > 1 ? ` Attempt ${current.attempt} of ${MAX_ATTEMPTS}.` : ''}</p>
-      <span className={`chip ${current.faceSeen ? 'live' : 'strong'}`}><span className="dot" />{current.faceSeen ? 'FACE FOUND' : 'LOOKING FOR YOUR FACE'}</span>
+      <span className={`chip ${chipClass}`}><span className="dot" />{chipText}</span>
       {current.warning && <p className="warning">{current.warning}</p>}
+      <button className="text-button" onClick={skip}>Skip gaze and continue</button>
     </div>
-    <button className={`calibration-dot ${current.collect ? 'is-collecting' : ''}`} style={{ left: `${px * 100}%`, top: `${py * 100}%` }} onClick={clickDot} aria-label={`Calibration dot ${current.index + 1}`} />
-    <button className="text-button skip" onClick={skip}>Skip gaze and continue</button>
   </div>
 }

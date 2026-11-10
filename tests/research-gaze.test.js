@@ -56,10 +56,33 @@ test('I-DT finds fixations and skips saccades and data gaps', () => {
   assert.ok(Math.abs(fixations[1].x - 900) < 15)
 })
 
-test('areas of interest grow by the gaze error and overlaps go to the smallest area', () => {
+test('areas of interest: a point inside areas goes to the smallest; the margin only applies outside all of them', () => {
   const aois = [{ id: 'page', rect: { x: 0, y: 0, width: 1000, height: 800 } }, { id: 'button', rect: { x: 100, y: 100, width: 80, height: 30 } }]
   assert.equal(aoiAt({ x: 120, y: 110 }, aois), 'button')
   assert.equal(aoiAt({ x: 220, y: 110 }, aois), 'page')
-  assert.equal(aoiAt({ x: 220, y: 110 }, aois, 50), 'button')
+  assert.equal(aoiAt({ x: 220, y: 110 }, aois, 50), 'page')
   assert.equal(aoiAt({ x: 2000, y: 110 }, aois), null)
+  assert.equal(aoiAt({ x: 1040, y: 110 }, aois, 50), 'page')
+})
+
+test('a point inside one area is not taken by a smaller neighbour grown by the margin', () => {
+  const aois = [{ id: 'refund-method', rect: { x: 40, y: 300, width: 400, height: 60 } }, { id: 'submit-return', rect: { x: 40, y: 380, width: 120, height: 36 } }]
+  assert.equal(aoiAt({ x: 100, y: 330 }, aois, 141), 'refund-method')
+  // Outside both: the nearer grown area wins, then the smaller.
+  assert.equal(aoiAt({ x: 100, y: 371 }, aois, 40), 'submit-return')
+  assert.equal(aoiAt({ x: 100, y: 365 }, aois, 40), 'refund-method')
+})
+
+test('fixed areas are in viewport coordinates and use the point\'s scroll offset', () => {
+  const aois = [{ id: 'footer', rect: { x: 0, y: 600, width: 1000, height: 120 }, fixed: true }, { id: 'form', rect: { x: 0, y: 100, width: 1000, height: 800 } }]
+  assert.equal(aoiAt({ x: 500, y: 950, sx: 0, sy: 300 }, aois), 'footer')
+  assert.equal(aoiAt({ x: 500, y: 650, sx: 0, sy: 300 }, aois), 'form')
+  assert.equal(aoiAt({ x: 500, y: 650 }, aois), 'footer')
+})
+
+test('fixations carry the mean scroll offset of their samples', () => {
+  const points = [0, 40, 80, 120, 160].map((t, index) => ({ t, x: 500, y: 900 + index, sx: 0, sy: index < 3 ? 300 : 310 }))
+  const [fixation] = detectFixations(points)
+  assert.equal(fixation.sy, 304)
+  assert.equal(detectFixations(points.map(({ sx, sy, ...point }) => point))[0].sy, 0)
 })

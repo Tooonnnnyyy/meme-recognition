@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { describeSignal, detectSignals, findCandidates } from '../src/research/signals.js'
+import { describeSignal, detectSignals, findCandidates, sessionFixations } from '../src/research/signals.js'
 
 const button = { selector: 'button.track', label: 'Track package', interactive: true }
 const base = overrides => ({
@@ -40,6 +40,44 @@ test('a click right before the task ends is not judged', () => {
   assert.deepEqual(kinds(detectSignals(session)), [])
 })
 
+test('a response to the next click does not answer an earlier dead click', () => {
+  const submit = { selector: 'button#submit-return', label: 'Submit return', interactive: true }
+  const radio = { selector: 'label', label: 'Store credit', interactive: true }
+  const session = base({ events: [
+    { type: 'click', t: 5000, taskId: 'T1', x: 10, y: 10, target: submit },
+    { type: 'click', t: 7000, taskId: 'T1', x: 10, y: 80, target: radio },
+    { type: 'change', t: 7010, taskId: 'T1' },
+  ] })
+  const dead = detectSignals(session).filter(signal => signal.kind === 'dead-click')
+  assert.equal(dead.length, 1)
+  assert.equal(dead[0].detail.label, 'Submit return')
+})
+
+test('a dead click is still judged when the next click ends the task', () => {
+  const title = { selector: 'b', label: 'Ridgeline hiking boots', interactive: false }
+  const details = { selector: 'a.button.secondary', label: 'View details', interactive: true }
+  const session = base({ tasks: [{ id: 'T1', start: 0, end: 6600, outcome: 'success' }], events: [
+    { type: 'click', t: 5000, taskId: 'T1', x: 10, y: 10, target: title },
+    { type: 'click', t: 6500, taskId: 'T1', x: 300, y: 10, target: details },
+    { type: 'navigate', t: 6600, taskId: 'T1', page: 'order' },
+  ] })
+  const dead = detectSignals(session).filter(signal => signal.kind === 'dead-click')
+  assert.deepEqual(dead.map(signal => signal.detail.label), ['Ridgeline hiking boots'])
+})
+
+test('a button taking focus on its own press is not a response; focus elsewhere is', () => {
+  const own = base({ events: [
+    { type: 'click', t: 5000, taskId: 'T1', x: 10, y: 10, target: button },
+    { type: 'focus', t: 5001, taskId: 'T1', selector: 'button.track' },
+  ] })
+  assert.ok(kinds(detectSignals(own)).includes('dead-click'))
+  const elsewhere = base({ events: [
+    { type: 'click', t: 5000, taskId: 'T1', x: 10, y: 10, target: button },
+    { type: 'focus', t: 5001, taskId: 'T1', selector: 'input#coupon' },
+  ] })
+  assert.ok(!kinds(detectSignals(elsewhere)).includes('dead-click'))
+})
+
 test('four clicks within 2 s and 60 px are rage clicks', () => {
   const events = [0, 300, 600, 900].map((t, index) => ({ type: 'click', t: 10000 + t, taskId: 'T1', x: 100 + index * 5, y: 100, target: button }))
   events.push({ type: 'mutation', t: 10100, taskId: 'T1' })
@@ -68,6 +106,16 @@ test('8 s without input is an idle period', () => {
   assert.equal(idle[0].detail.seconds, 9)
 })
 
+test('idle time starts at the last input of a throttled burst', () => {
+  const events = [{ type: 'activity', t: 100, last: 2090, taskId: 'T1' }, { type: 'click', t: 9900, taskId: 'T1', x: 0, y: 0, target: { selector: 'body' } }]
+  assert.deepEqual(kinds(detectSignals(base({ tasks: [{ id: 'T1', start: 0, end: 12000, outcome: 'success' }], events }))), [])
+  events[1].t = 11000
+  const idle = detectSignals(base({ tasks: [{ id: 'T1', start: 0, end: 12000, outcome: 'success' }], events }))
+  assert.deepEqual(kinds(idle), ['idle'])
+  assert.equal(idle[0].start, 2090)
+  assert.equal(idle[0].detail.seconds, 9)
+})
+
 test('brow lowering counts only when held 2 s above the calibrated baseline', () => {
   const face = []
   for (let t = 0; t <= 6000; t += 100) face.push({ t, brow: t >= 2000 && t <= 4600 ? 0.5 : 0.1, scale: 0.2 })
@@ -84,6 +132,39 @@ test('jumping between many areas without clicking is visual search', () => {
   const search = detectSignals(session).filter(signal => signal.kind === 'visual-search')
   assert.equal(search.length, 1)
   assert.equal(search[0].detail.areas, 4)
+})
+
+test('fixations come out in time order across pages, so visual search never ends before it starts', () => {
+  const aois = {
+    orders: [{ id: 'list', rect: { x: 0, y: 0, width: 300, height: 300 } }],
+    help: ['a', 'b', 'c', 'd'].map((id, index) => ({ id, rect: { x: index * 400, y: 0, width: 300, height: 300 } })),
+  }
+  const gaze = []
+  const look = (from, to, page, x) => { for (let t = from; t < to; t += 40) gaze.push({ t, page, x, y: 150 }) }
+  look(0, 1200, 'orders', 150)
+  for (let hop = 0; hop < 17; hop += 1) look(1600 + hop * 400, 1960 + hop * 400, 'help', (hop % 4) * 400 + 150)
+  look(9600, 11000, 'orders', 150)
+  const click = t => ({ type: 'click', t, taskId: 'T1', x: 0, y: 0, target: { selector: 'body' } })
+  const session = base({ gaze, aois, quality: { gazeEnabled: true, accuracy: { meanPx: 40 } }, events: [click(5000), click(7000), click(10000)] })
+  const fixations = sessionFixations(session)
+  assert.ok(fixations.every((fixation, index) => index === 0 || fixation.start >= fixations[index - 1].start))
+  assert.deepEqual(kinds(detectSignals(session)).filter(kind => kind === 'visual-search'), [])
+})
+
+test('areas on fixed elements are matched in the viewport, so scrolling does not move them', () => {
+  const aois = { returns: [
+    { id: 'return-form', rect: { x: 300, y: 100, width: 800, height: 700 } },
+    { id: 'footer', rect: { x: 0, y: 606, width: 1440, height: 120 }, fixed: true },
+  ] }
+  const gaze = []
+  // Scrolled 300 px: first on the footer (viewport y 660), then on the form (viewport y 350).
+  for (let t = 1000; t < 1400; t += 40) gaze.push({ t, page: 'returns', x: 600, y: 960, sx: 0, sy: 300 })
+  for (let t = 2000; t < 2400; t += 40) gaze.push({ t, page: 'returns', x: 600, y: 650, sx: 0, sy: 300 })
+  const fixations = sessionFixations(base({ gaze, aois, quality: { gazeEnabled: true, accuracy: { meanPx: 40 } } }))
+  assert.deepEqual(fixations.map(fixation => fixation.aoi), ['footer', 'return-form'])
+  // Older files have no flag or scroll offsets and keep document coordinates.
+  const old = sessionFixations(base({ gaze: gaze.map(({ sx, sy, ...point }) => point), aois: { returns: aois.returns.map(({ fixed, ...aoi }) => aoi) }, quality: { gazeEnabled: true, accuracy: { meanPx: 40 } } }))
+  assert.deepEqual(old.map(fixation => fixation.aoi), [null, 'footer'])
 })
 
 test('candidates: strong signals stand alone, medium needs a weak partner, overlaps merge', () => {
@@ -110,4 +191,20 @@ test('candidate confidence reflects the evidence', () => {
     { kind: 'lean-in', strength: 'weak', taskId: 'T1', start: 9500, end: 12000, count: 1, detail: { seconds: 2.5 } },
   ]
   assert.equal(findCandidates(pair)[0].confidence, 'low')
+})
+
+test('candidate ids stay the same when re-scoring adds or removes other moments', () => {
+  const dead = { kind: 'dead-click', strength: 'strong', taskId: 'T2', start: 28400, end: 30100, count: 2, detail: {} }
+  const idle = { kind: 'idle', strength: 'medium', taskId: 'T2', start: 1000, end: 9000, count: 1, detail: { seconds: 8 } }
+  const lean = { kind: 'lean-in', strength: 'weak', taskId: 'T2', start: 9500, end: 12000, count: 1, detail: { seconds: 2.5 } }
+  const before = findCandidates([dead])
+  const after = findCandidates([idle, lean, dead])
+  assert.equal(after.length, 2)
+  assert.equal(after[1].id, before[0].id)
+  assert.equal(before[0].id, 'T2-dead-click-28400')
+  assert.equal(after[0].id, 'T2-idle-1000')
+  // A strong signal names a merged moment even when a medium one opened it first.
+  const merged = findCandidates([{ ...idle, end: 26000 }, { ...lean, start: 25000, end: 27000 }, dead])
+  assert.equal(merged.length, 1)
+  assert.equal(merged[0].id, 'T2-dead-click-28400')
 })
