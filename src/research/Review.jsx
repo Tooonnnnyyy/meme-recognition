@@ -170,12 +170,14 @@ function SessionView({ session, analysis, reviews, selectedId, onSelect, onRevie
     <section className="stage">
       <div className="quality">
         <span className="kicker">Data quality</span>
-        {lost && <span className="chip strong" title={lost.reason}>CAMERA LOST AT {clock(lost.t)}{lost.taskId ? ` · ${lost.taskId}` : ''}</span>}
+        {lost && <span className="chip strong">CAMERA LOST AT {clock(lost.t)}{lost.taskId ? ` · ${lost.taskId}` : ''}</span>}
         <span className={`chip ${quality.gazeEnabled ? 'live' : ''}`}>{quality.gazeEnabled ? `GAZE ${quality.accuracy.meanDegrees.toFixed(1)}° · ${until || 'PASS'}` : 'GAZE OFF'}</span>
         {facePercent !== null && <span className="chip">{facePercent}% FRAMES WITH FACE{until && ` · ${until}`}</span>}
-        {session.baseline?.from === 'tasks' && <span className="chip" title="Calibration gave no face baseline, so brow and lean are compared with the participant's first face frames in the tasks.">FACE BASELINE FROM TASKS</span>}
+        {session.baseline?.from === 'tasks' && <span className="chip">FACE BASELINE FROM TASKS</span>}
         {drift !== null && <span className="chip">DRIFT CHECK ×{quality.driftChecks.length} · {drift} PX</span>}
         <span className="chip">NO VIDEO STORED</span>
+        {lost?.reason && <p className="muted small">Camera lost: {lost.reason}.</p>}
+        {session.baseline?.from === 'tasks' && <p className="muted small">Calibration gave no face baseline, so brow and lean are compared with the participant's first face frames in the tasks.</p>}
       </div>
       {selected ? <Replay session={session} candidate={selected} fixations={analysis.fixations} /> : <div className="replay empty"><p className="muted">No moments were flagged in this session.</p></div>}
       <Timeline session={session} analysis={analysis} selected={selected} onSelect={onSelect} />

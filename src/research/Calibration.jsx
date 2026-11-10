@@ -101,7 +101,7 @@ export function Calibration({ subscribe, aspect, onDone }) {
   }
   const finish = passed => onDone({ model: state.current.model, accuracy: state.current.accuracy, passed, baseline: baseline() })
   const retry = () => { state.current = freshState(state.current.attempt + 1); render() }
-  const skip = () => onDone({ model: null, accuracy: { meanPx: 0, meanDegrees: 0 }, passed: false, baseline: baseline() })
+  const skip = () => onDone({ model: null, accuracy: null, passed: false, baseline: baseline() })
 
   const current = state.current
   if (current.phase === 'result') {

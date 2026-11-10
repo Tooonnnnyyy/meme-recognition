@@ -145,7 +145,7 @@ export function Finished({ session, saved, onSaved, onReview, onDelete }) {
     <main className="finished">
       <span className="kicker">Step 3 of 3 · Finished</span>
       <h1>Thank you</h1>
-      <p className="lede">The camera is off. Your results file lists your clicks and what you clicked, the pages you saw, your scrolling, the times you moved the mouse or pressed keys, and task times and outcomes{camera && `, plus ${camera}`}. It has no video, no images of you, nothing you typed into fields, and not which keys you pressed.</p>
+      <p className="lede">The camera is off. Your results file lists your clicks and what you clicked, the pages you saw, your scrolling, which form controls you changed or moved to, the times you moved the mouse or pressed keys, and task times and outcomes{camera && `, plus ${camera}`}. It has no video, no images of you, nothing you typed into fields, and not which keys you pressed.</p>
       <div className="panel outcome-list">
         {session.tasks.map(task => <div key={task.id} className="outcome"><span className="mono">{task.id}</span><span>{task.prompt}</span><span className="muted">{OUTCOME_LABELS[task.outcome]}</span><span className="mono">{clock(task.end - task.start)}</span></div>)}
       </div>

@@ -149,7 +149,8 @@ function App() {
     const { quality } = recorderRef.current.session
     const usable = passed && !quality.cameraLost
     quality.gazeEnabled = usable
-    quality.accuracy = { meanPx: Math.round(accuracy.meanPx), meanDegrees: Math.round(accuracy.meanDegrees * 100) / 100 }
+    // Skipping measures nothing, so there is no accuracy to store.
+    quality.accuracy = accuracy && { meanPx: Math.round(accuracy.meanPx), meanDegrees: Math.round(accuracy.meanDegrees * 100) / 100 }
     recorderRef.current.session.baseline = baseline
     setGazeModel(usable ? model : null)
     setStep('tasks')

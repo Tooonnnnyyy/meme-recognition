@@ -83,11 +83,11 @@ function deadClicks(session, settings) {
     const task = session.tasks.find(item => item.id === click.taskId)
     if (task?.end != null && task.end < closes) return
     const previous = signals[signals.length - 1]
-    if (previous && previous.taskId === click.taskId && previous.detail.selector === selector && previous.detail.label === click.target?.label && click.t - previous.end < 10000) {
+    if (previous && previous.taskId === click.taskId && previous.detail.selector === selector && previous.detail.label === click.target?.label && Math.hypot(click.x - previous.detail.x, click.y - previous.detail.y) <= settings.rageRadiusPx && click.t - previous.end < 10000) {
       previous.end = click.t
       previous.count += 1
     } else {
-      signals.push({ kind: 'dead-click', strength: STRONG, taskId: click.taskId, start: click.t, end: click.t, count: 1, detail: { selector, label: click.target?.label, aoi: click.target?.aoi || null } })
+      signals.push({ kind: 'dead-click', strength: STRONG, taskId: click.taskId, start: click.t, end: click.t, count: 1, detail: { selector, label: click.target?.label, aoi: click.target?.aoi || null, x: click.x, y: click.y } })
     }
   })
   return signals

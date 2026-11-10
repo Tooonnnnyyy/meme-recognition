@@ -26,7 +26,11 @@ const clean = text => (text || '').trim().replace(/\s+/g, ' ').slice(0, 60)
 const isHidden = node => {
   if (node.hidden || node.getAttribute?.('aria-hidden') === 'true' || /^(SCRIPT|STYLE|TEMPLATE|NOSCRIPT)$/.test(node.tagName)) return true
   const style = node.ownerDocument?.defaultView?.getComputedStyle?.(node)
-  return Boolean(style && (style.display === 'none' || style.visibility === 'hidden'))
+  if (!style) return false
+  if (style.display === 'none' || style.visibility === 'hidden') return true
+  // Screen-reader-only text: clipped to a pixel or moved off screen.
+  const box = node.getBoundingClientRect()
+  return (box.width <= 1 && box.height <= 1) || box.right <= 0 || box.bottom <= 0
 }
 // An element's visible text without the fields and editable areas inside it,
 // whose text is what the participant typed.
