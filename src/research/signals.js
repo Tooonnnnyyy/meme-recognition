@@ -47,6 +47,8 @@ const taskAt = (tasks, t) => tasks.find(task => t >= task.start && t <= (task.en
 
 const RESPONSES = ['mutation', 'change', 'navigate', 'focus']
 
+// A Figma click says itself whether it hit a hotspot (target.handled); a
+// site click is judged by what happens after it.
 function deadClicks(session, settings) {
   // In time order. The sort is stable, so events recorded in one millisecond
   // keep their order: a DOM change in the press's own millisecond follows it.
@@ -70,8 +72,9 @@ function deadClicks(session, settings) {
     // again leaves it open: a dead element stays dead because it never
     // answers. A button or link taking focus on its own press is no response.
     let closes = click.t + settings.deadClickMs
-    let answered = false
-    for (let later = index + 1; later < events.length && events[later].t < closes; later += 1) {
+    let answered = click.target?.handled === true
+    const known = typeof click.target?.handled === 'boolean'
+    for (let later = index + 1; !known && later < events.length && events[later].t < closes; later += 1) {
       const event = events[later]
       if (event.type === 'click' && !same(event)) { closes = event.t; break }
       if (!RESPONSES.includes(event.type) || (event.type === 'focus' && event.selector === selector) || (event.type === 'change' && !ownChange(event))) continue
@@ -81,7 +84,7 @@ function deadClicks(session, settings) {
     if (answered) return
     // The task ended before the window closed, so there is nothing to judge.
     const task = session.tasks.find(item => item.id === click.taskId)
-    if (task?.end != null && task.end < closes) return
+    if (!known && task?.end != null && task.end < closes) return
     const previous = signals[signals.length - 1]
     if (previous && previous.taskId === click.taskId && previous.detail.selector === selector && previous.detail.label === click.target?.label && Math.hypot(click.x - previous.detail.x, click.y - previous.detail.y) <= settings.rageRadiusPx && click.t - previous.end < 10000) {
       previous.end = click.t
@@ -135,6 +138,9 @@ function timeouts(session) {
 
 function idlePeriods(session, settings) {
   const signals = []
+  // A Figma frame does not pass on mouse movement or key presses, so quiet
+  // reading would look idle.
+  if (session.study?.kind === 'figma') return signals
   session.tasks.forEach(task => {
     // `last` is the end of a throttled burst of input, so idle starts there.
     const times = [task.start, ...session.events.filter(event => event.taskId === task.id && ['click', 'activity', 'navigate', 'focus', 'change', 'scroll'].includes(event.type)).flatMap(event => [event.t, event.last ?? event.t]), task.end ?? task.start]

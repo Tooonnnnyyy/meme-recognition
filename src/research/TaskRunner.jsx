@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { gazeFeatures, predictGaze } from './gaze'
 import { faceSample } from './Calibration'
+import { embedUrl } from './figma'
 import { ThemeToggle } from '../ThemeToggle'
 
 const BASE = import.meta.env.BASE_URL
@@ -87,7 +88,11 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
     runningRef.current = true
     setElapsed(0)
     setRunning(true)
-    frameRef.current.src = `${BASE}${study.siteBase}${task.start}`
+    if (study.kind === 'figma') {
+      // The embed posts its frames; reaching the goal frame completes the task.
+      recorder.attachFigma(frameRef.current, { onPage: page => { if (runningRef.current && page === taskRef.current.successPage) finishRef.current('success') } })
+      frameRef.current.src = embedUrl(study.figma, task.start || study.figma.startNodeId)
+    } else frameRef.current.src = `${BASE}${study.siteBase}${task.start}`
   }
 
   const loaded = () => {
@@ -106,13 +111,13 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
       <ThemeToggle />
     </div>
     <div className="site-frame">
-      <iframe ref={frameRef} title="Website being tested" src="about:blank" onLoad={loaded} />
+      <iframe ref={frameRef} title={study.kind === 'figma' ? 'Prototype being tested' : 'Website being tested'} src="about:blank" onLoad={loaded} allow="fullscreen" />
       {!running && <div className="task-intro">
         <div className="panel intro-card">
           {lastOutcome && <span className="chip live">PREVIOUS TASK · {OUTCOME_LABELS[lastOutcome].toUpperCase()}</span>}
           <span className="kicker">Task {index + 1} of {study.tasks.length}</span>
           <h2>{task.prompt}</h2>
-          <p className="muted">Take your time and use the website as you normally would. You have up to {Math.round(task.limitSec / 60)} minutes.</p>
+          <p className="muted">Take your time and use the {study.kind === 'figma' ? 'prototype' : 'website'} as you normally would. You have up to {Math.round(task.limitSec / 60)} minutes.</p>
           {notice && <p className="warning">{notice}</p>}
           <button className="btn primary" onClick={start}>Start task {index + 1}</button>
         </div>
@@ -145,7 +150,9 @@ export function Finished({ session, saved, onSaved, onReview, onDelete }) {
     <main className="finished">
       <span className="kicker">Step 3 of 3 · Finished</span>
       <h1>Thank you</h1>
-      <p className="lede">The camera is off. Your results file lists your clicks and what you clicked, the pages you saw, your scrolling, which form controls you changed or moved to, the times you moved the mouse or pressed keys, and task times and outcomes{camera && `, plus ${camera}`}. It has no video, no images of you, nothing you typed into fields, and not which keys you pressed.</p>
+      <p className="lede">{session.study.kind === 'figma'
+        ? `The camera is off. Your results file lists where you clicked, the screens you saw, and task times and outcomes${camera && `, plus ${camera}`}. It has no video, no images of you, and nothing you typed.`
+        : `The camera is off. Your results file lists your clicks and what you clicked, the pages you saw, your scrolling, which form controls you changed or moved to, the times you moved the mouse or pressed keys, and task times and outcomes${camera && `, plus ${camera}`}. It has no video, no images of you, nothing you typed into fields, and not which keys you pressed.`}</p>
       <div className="panel outcome-list">
         {session.tasks.map(task => <div key={task.id} className="outcome"><span className="mono">{task.id}</span><span>{task.prompt}</span><span className="muted">{OUTCOME_LABELS[task.outcome]}</span><span className="mono">{clock(task.end - task.start)}</span></div>)}
       </div>

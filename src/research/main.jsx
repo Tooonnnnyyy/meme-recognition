@@ -7,6 +7,8 @@ import { Consent } from './Consent'
 import { Calibration } from './Calibration'
 import { TaskRunner, Finished } from './TaskRunner'
 import { Review } from './Review'
+import { Setup } from './Setup'
+import { decodeStudy } from './studyLink'
 import './research.css'
 
 const participantCode = () => `P-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
@@ -37,8 +39,20 @@ function watchTrack(track, onLost) {
   return () => watch.abort()
 }
 
+// A participant link carries its study (?study=...); without one the demo
+// study runs.
+function linkedStudy() {
+  const param = new URLSearchParams(location.search).get('study')
+  if (!param) return { study: DEMO_STUDY }
+  try { return { study: decodeStudy(param) } } catch (error) { return { error: error.message } }
+}
+const LINKED = linkedStudy()
+const STUDY = LINKED.study
+const firstStep = () => (location.hash === '#review' ? 'review' : location.hash === '#setup' ? 'setup' : LINKED.error ? 'bad-link' : 'consent')
+
 // Participant flow: consent → calibration (optional) → tasks → finished.
-// Researchers open research.html#review to load and review session files.
+// Researchers open research.html#review to load and review session files, and
+// research.html#setup to make a Figma study link.
 function App() {
   const videoRef = useRef(null)
   const engineRef = useRef(null)
@@ -47,7 +61,7 @@ function App() {
   const listenersRef = useRef(new Set())
   const recorderRef = useRef(null)
   const participant = useRef(participantCode()).current
-  const [step, setStep] = useState(location.hash === '#review' ? 'review' : 'consent')
+  const [step, setStep] = useState(firstStep)
   const [status, setStatus] = useState('')
   const [cameraOn, setCameraOn] = useState(false)
   const [cameraLost, setCameraLost] = useState(false)
@@ -56,7 +70,7 @@ function App() {
   const [saved, setSaved] = useState(false)
   const stepRef = useRef(step)
   stepRef.current = step
-  const backTo = useRef('consent')
+  const backTo = useRef(LINKED.error ? 'bad-link' : 'consent')
   // Review stays mounted, hidden, once opened, so unexported reviews survive
   // Back and Forward. Deleting the data unmounts it.
   const [reviewKept, setReviewKept] = useState(step === 'review')
@@ -67,10 +81,15 @@ function App() {
   useEffect(() => {
     const onHash = () => {
       const current = stepRef.current
-      if (location.hash === '#review') {
+      const target = { '#review': 'review', '#setup': 'setup' }[location.hash]
+      if (target) {
         if (RECORDING.includes(current)) history.replaceState(null, '', location.pathname + location.search)
-        else if (current !== 'review') { backTo.current = current; setReviewKept(true); setStep('review') }
-      } else if (current === 'review') setStep(backTo.current)
+        else if (current !== target) {
+          if (!['review', 'setup'].includes(current)) backTo.current = current
+          if (target === 'review') setReviewKept(true)
+          setStep(target)
+        }
+      } else if (['review', 'setup'].includes(current)) setStep(backTo.current)
     }
     addEventListener('hashchange', onHash)
     return () => removeEventListener('hashchange', onHash)
@@ -118,7 +137,7 @@ function App() {
   }
 
   const begin = async withCamera => {
-    recorderRef.current = createRecorder({ study: DEMO_STUDY, participant })
+    recorderRef.current = createRecorder({ study: STUDY, participant })
     if (!withCamera) { setStep('tasks'); return }
     setStep('loading')
     try {
@@ -174,12 +193,14 @@ function App() {
 
   return <div className={`copilot step-${step}`}>
     <video ref={videoRef} className={`camera-feed ${step === 'calibrate' ? 'is-visible' : ''}`} muted playsInline />
-    {step === 'consent' && <Consent study={DEMO_STUDY} participant={participant} onBegin={begin} />}
+    {step === 'consent' && <Consent study={STUDY} participant={participant} onBegin={begin} />}
     {step === 'loading' && <div className="center-note"><span className="kicker">Starting the camera</span><h2>Loading on-device vision…</h2><p className="muted">{status || 'This takes a few seconds the first time.'}</p></div>}
     {step === 'calibrate' && <Calibration subscribe={subscribe} aspect={aspect} onDone={calibrated} />}
-    {step === 'tasks' && <TaskRunner study={DEMO_STUDY} recorder={recorderRef.current} gazeModel={gazeModel} subscribe={subscribe} aspect={aspect} cameraOn={cameraOn} cameraLost={cameraLost} notice={status} onFinish={finish} onStop={discard} />}
+    {step === 'tasks' && <TaskRunner study={STUDY} recorder={recorderRef.current} gazeModel={gazeModel} subscribe={subscribe} aspect={aspect} cameraOn={cameraOn} cameraLost={cameraLost} notice={status} onFinish={finish} onStop={discard} />}
     {step === 'finished' && <Finished session={session} saved={saved} onSaved={() => setSaved(true)} onReview={() => { setReviewRequest(count => count + 1); location.hash = 'review' }} onDelete={discard} />}
     {step === 'deleted' && <div className="center-note"><span className="kicker">Session ended</span><h2>{saved ? 'Your data was deleted from this page' : 'Your data was deleted'}</h2><p className="muted">{saved ? 'The results file you downloaded is still in your downloads folder. Delete it there too if you do not want to keep it. You can close this tab.' : 'Nothing from this session was saved or sent. You can close this tab.'}</p></div>}
+    {step === 'setup' && <Setup />}
+    {step === 'bad-link' && <div className="center-note"><span className="kicker">Study link</span><h2>This link does not open a study</h2><p className="muted">{LINKED.error}</p></div>}
     {reviewKept && <div hidden={step !== 'review'}><Review initialSession={session} request={reviewRequest} hidden={step !== 'review'} /></div>}
   </div>
 }

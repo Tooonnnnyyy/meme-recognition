@@ -56,6 +56,22 @@ These thresholds come from industry definitions (Sprig's rage and dead clicks) a
 
 Figma prototypes are cross-origin, so the recorder cannot see inside them. Support through Figma's Embed Kit is planned.
 
+## Testing a Figma prototype
+
+No code needed: open `research.html#setup`, paste the prototype link, write the tasks, and send participants the link it makes. The study travels inside the link (`?study=...`); nothing is uploaded.
+
+1. **Get a client ID.** Figma sends click and screen events only to sites its app allows. In Figma's developer settings, create an app, add this site's origin (for example `https://<user>.github.io`) as an allowed embed origin, and copy the app's client ID into the setup screen.
+2. **Check it works.** Press "Test the embed" on the setup screen and click around the prototype. The chip should turn to "Events arriving"; if it stays waiting, the origin is not allowed for that client ID. Figma may also send no events to participants who are not signed in to Figma; check this with a signed-out browser before a study.
+3. **Tasks.** Each task can start at a frame and complete on a goal frame (paste a frame link from Figma, or its node id such as `12:34`). Without a goal frame, the participant says when they are done.
+
+What Figma mode records and detects:
+
+- Clicks, with Figma's own report of whether each one hit a hotspot. A click off any hotspot is an unanswered click straight away, with no 3.5 s window. Figma reports a press and its release alike; a repeat on the same node and position within 600 ms is folded into its press.
+- The frames shown (page ids are node ids), so page loops, goal frames and timeouts work.
+- Gaze and face numbers as for a website, with a gaze heatmap on the replayed frame. Visual search needs `data-aoi` areas, which a Figma frame does not have, so it is off.
+- Idle periods are off: mouse movement and key presses inside the Figma frame do not reach the page, so quiet reading would look idle.
+- The review replays the frame in the Figma embed. Click marks are not drawn, because Figma gives click positions inside the clicked layer, not the frame. A "No Figma events" chip shows when the embed sent nothing.
+
 ## Session file
 
 JSON, version 1. Times are milliseconds since the session started. Pages are named by their page id, their path under `siteBase` without `.html`, such as `order-48213` or `cart/index`.

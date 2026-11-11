@@ -1,7 +1,10 @@
+import { FIGMA_ORIGIN, figmaTranslator } from './figma.js'
+
 // Builds the session file while a participant works through the tasks. It
 // watches the test page inside a same-origin iframe: clicks, page changes,
 // form changes, scrolling and DOM updates, plus gaze and face numbers from the
-// camera. No images or video are stored.
+// camera. A Figma prototype is watched through the events its embed posts
+// instead (see figma.js). No images or video are stored.
 
 const round = value => Math.round(value)
 const round3 = value => Math.round(value * 1000) / 1000
@@ -76,7 +79,9 @@ export function createRecorder({ study, participant }) {
   const now = () => round(performance.now() - origin)
   const session = {
     version: 1,
-    study: { id: study.id, title: study.title, siteBase: study.siteBase },
+    study: study.kind === 'figma'
+      ? { id: study.id, kind: 'figma', title: study.title, figma: { fileKey: study.figma.fileKey, name: study.figma.name, clientId: study.figma.clientId } }
+      : { id: study.id, title: study.title, siteBase: study.siteBase },
     participant,
     startedAt: new Date().toISOString(),
     viewport: null,
@@ -93,6 +98,8 @@ export function createRecorder({ study, participant }) {
   let frame = null
   let detach = () => {}
   let clicked = false
+  // A cross-origin Figma frame: its scroll position cannot be read.
+  let crossOrigin = false
   const kept = {}
   // A throttled event is folded into the last kept one of its type, which
   // records its time as `last`, so the end of a burst of input is not lost.
@@ -109,6 +116,7 @@ export function createRecorder({ study, participant }) {
   // Call on every iframe load: records the page and wires up its listeners.
   const attachFrame = iframe => {
     detach()
+    crossOrigin = false
     frame = iframe
     const win = iframe.contentWindow
     const doc = iframe.contentDocument
@@ -165,6 +173,37 @@ export function createRecorder({ study, participant }) {
     return page
   }
 
+  // Call when a task opens the Figma embed in iframe. onPage(page) is called
+  // with each frame shown, so the caller can see the task's goal reached.
+  const attachFigma = (iframe, { onPage } = {}) => {
+    detach()
+    crossOrigin = true
+    frame = iframe
+    session.viewport = { width: iframe.clientWidth, height: iframe.clientHeight }
+    session.quality.figmaEvents ??= 0
+    const translate = figmaTranslator()
+    let lastClick = null
+    const onMessage = event => {
+      if (event.origin !== FIGMA_ORIGIN || event.source !== iframe.contentWindow) return
+      const action = translate(event.data, now())
+      if (!action) return
+      session.quality.figmaEvents += 1
+      if (action.type === 'navigate') {
+        page = action.page
+        session.aois[page] ??= []
+        push('navigate', { page })
+        onPage?.(page)
+      } else if (action.type === 'click' && page) {
+        lastClick = push('click', { page, x: action.x, y: action.y, target: action.target })
+      } else if (action.type === 'release' && lastClick && action.handled) {
+        lastClick.target.handled = true
+        lastClick.target.interactive = true
+      }
+    }
+    addEventListener('message', onMessage)
+    detach = () => removeEventListener('message', onMessage)
+  }
+
   // Gaze arrives in viewport pixels of the whole app; keep only points that
   // land on the test page, converted to its document coordinates, with the
   // scroll offset so areas on fixed elements can be matched in the viewport.
@@ -172,8 +211,8 @@ export function createRecorder({ study, participant }) {
     if (!task || !frame?.contentWindow || !page) return
     const rect = frame.getBoundingClientRect()
     if (point.x < rect.left || point.x > rect.right || point.y < rect.top || point.y > rect.bottom) return
-    const win = frame.contentWindow
-    session.gaze.push({ t: now(), page, x: round(point.x - rect.left + win.scrollX), y: round(point.y - rect.top + win.scrollY), sx: round(win.scrollX), sy: round(win.scrollY) })
+    const [sx, sy] = crossOrigin ? [0, 0] : [frame.contentWindow.scrollX, frame.contentWindow.scrollY]
+    session.gaze.push({ t: now(), page, x: round(point.x - rect.left + sx), y: round(point.y - rect.top + sy), sx: round(sx), sy: round(sy) })
   }
 
   // With no baseline from calibration (skipped, or too few face frames), the
@@ -194,6 +233,7 @@ export function createRecorder({ study, participant }) {
     session,
     now,
     attachFrame,
+    attachFigma,
     recordGaze,
     recordFace,
     startTask(definition) {
