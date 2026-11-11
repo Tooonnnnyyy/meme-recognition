@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { describeSignal, detectSignals, findCandidates, sessionFixations, STRONG, MEDIUM, WEAK } from './signals'
 import { ThemeToggle } from '../ThemeToggle'
+import { embedUrl, isClientId, isFileKey, isNodeId } from './figma'
 
 const BASE = import.meta.env.BASE_URL
 const clock = ms => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
@@ -40,13 +41,13 @@ const listOf = check => value => Array.isArray(value) && value.every(item => isR
 // (the URL parser drops those), and no encoded slash a server may decode.
 const isPath = value => isText(value) && !/^\/|\.\.|:|\\|\/\/|%2[ef]|%5c|[\t\n\r]/i.test(value)
 const isAccuracy = accuracy => isRecord(accuracy) && isNumber(accuracy.meanPx) && isNumber(accuracy.meanDegrees)
-const EVENT_FIELDS = {
-  click: event => isPath(event.page) && isNumber(event.x) && isNumber(event.y) && isRecord(event.target) && isText(event.target.selector),
-  navigate: event => isPath(event.page),
-  scroll: event => isPath(event.page) && isNumber(event.x) && isNumber(event.y),
-}
-const FIELDS = {
-  study: study => isRecord(study) && isText(study.title) && isPath(study.siteBase),
+// Pages are paths in the study site, or Figma node ids ('12:34') in a Figma
+// study, whose replay is the Figma embed opened at that frame.
+const isFigmaStudy = study => isRecord(study) && study.kind === 'figma'
+const fieldsFor = isPage => ({
+  study: study => isRecord(study) && isText(study.title) && (isFigmaStudy(study)
+    ? isRecord(study.figma) && isFileKey(study.figma.fileKey) && isText(study.figma.name) && optional(isClientId)(study.figma.clientId)
+    : isPath(study.siteBase)),
   participant: isText,
   viewport: optional(viewport => isRecord(viewport) && isNumber(viewport.width) && isNumber(viewport.height)),
   quality: quality => isRecord(quality) && typeof quality.gazeEnabled === 'boolean' && isNumber(quality.frames) && isNumber(quality.faceFrames)
@@ -55,17 +56,23 @@ const FIELDS = {
     && (quality.gazeEnabled ? isAccuracy : optional(isAccuracy))(quality.accuracy),
   baseline: optional(baseline => isRecord(baseline) && isNumber(baseline.brow) && isNumber(baseline.scale)),
   tasks: listOf(task => isText(task.id) && isNumber(task.start) && optional(isNumber)(task.end) && optional(isText)(task.outcome) && optional(isText)(task.prompt)),
-  events: listOf(event => isText(event.type) && isNumber(event.t) && optional(isText)(event.taskId) && optional(isNumber)(event.last) && (EVENT_FIELDS[event.type]?.(event) ?? true)),
-  gaze: optional(listOf(point => isNumber(point.t) && isText(point.page) && isNumber(point.x) && isNumber(point.y) && optional(isNumber)(point.sx) && optional(isNumber)(point.sy))),
+  events: listOf(event => isText(event.type) && isNumber(event.t) && optional(isText)(event.taskId) && optional(isNumber)(event.last) && (eventFields(isPage)[event.type]?.(event) ?? true)),
+  gaze: optional(listOf(point => isNumber(point.t) && isPage(point.page) && isNumber(point.x) && isNumber(point.y) && optional(isNumber)(point.sx) && optional(isNumber)(point.sy))),
   face: optional(listOf(sample => isNumber(sample.t) && isNumber(sample.brow) && isNumber(sample.scale))),
-  aois: optional(aois => isRecord(aois) && Object.values(aois).every(listOf(area => isText(area.id) && isRecord(area.rect) && ['x', 'y', 'width', 'height'].every(key => isNumber(area.rect[key]))))),
+  aois: optional(aois => isRecord(aois) && Object.keys(aois).every(isPage) && Object.values(aois).every(listOf(area => isText(area.id) && isRecord(area.rect) && ['x', 'y', 'width', 'height'].every(key => isNumber(area.rect[key]))))),
   reviews: optional(reviews => isRecord(reviews) && Object.values(reviews).every(review => isRecord(review) && ['open', 'confirmed', 'rejected'].includes(review.status)
     && optional(level => Number.isInteger(level) && level >= 0 && level < SEVERITY.length)(review.severity))),
-}
+})
+const eventFields = isPage => ({
+  click: event => isPage(event.page) && isNumber(event.x) && isNumber(event.y) && isRecord(event.target) && isText(event.target.selector),
+  navigate: event => isPage(event.page),
+  scroll: event => isPage(event.page) && isNumber(event.x) && isNumber(event.y),
+})
 
 function readSession(text) {
   const data = JSON.parse(text)
   if (!isRecord(data) || data.version !== 1) throw new FileError('This is not a Usability Copilot session file.')
+  const FIELDS = fieldsFor(isFigmaStudy(data.study) ? isNodeId : isPath)
   const field = Object.keys(FIELDS).find(name => !FIELDS[name](data[name]))
   if (field) throw new FileError(`This session file cannot be shown: its “${field}” field is ${data[field] === undefined ? 'missing' : 'not in the expected format'}.`)
   return data
@@ -78,6 +85,7 @@ const opened = session => ({ session, analysis: analyze(session) })
 // The replay frame's address, resolved as the frame would resolve it, or null
 // if it leaves the study site in a way isPath did not foresee.
 function replaySrc(session, page) {
+  if (isFigmaStudy(session.study)) return isNodeId(page) ? embedUrl(session.study.figma, page) : null
   const resolve = path => new URL(path, location.href)
   const site = resolve(`${BASE}${session.study.siteBase}`)
   const url = resolve(`${BASE}${session.study.siteBase}${page}.html`)
@@ -115,14 +123,17 @@ function Replay({ session, candidate, fixations }) {
   const inWindow = item => item.page === view.page && item.t >= candidate.start && item.t <= candidate.end
   const spots = fixations.filter(fixation => fixation.page === view.page && fixation.end >= candidate.start && fixation.start <= candidate.end)
   const clicks = session.events.filter(event => event.type === 'click' && inWindow(event))
+  // Figma reports click positions inside the clicked frame, not the embed, so
+  // they are counted but not drawn.
+  const figma = isFigmaStudy(session.study)
   return <div className="replay" ref={boxRef} style={{ height: `${viewport.height * scale}px` }}>
     <div className="replay-stage" style={{ width: `${viewport.width}px`, height: `${viewport.height}px`, transform: `scale(${scale})` }}>
-      <iframe ref={frameRef} key={frameKey} title="Page at this moment" tabIndex={-1} src={src} onLoad={() => frameRef.current?.contentWindow?.scrollTo(view.scrollX, view.scrollY)} />
+      <iframe ref={frameRef} key={frameKey} title="Page at this moment" tabIndex={-1} src={src} onLoad={() => { if (!figma) frameRef.current?.contentWindow?.scrollTo(view.scrollX, view.scrollY) }} />
       <svg className="replay-overlay" width={viewport.width} height={viewport.height} aria-hidden="true">
         {/* heat spots sit on the tested website, which is light in both themes */}
         <defs><radialGradient id="heat-spot"><stop offset="0" stopColor="#ff5a28" stopOpacity=".5" /><stop offset="1" stopColor="#ff5a28" stopOpacity="0" /></radialGradient></defs>
         {spots.map((spot, index) => <circle key={index} cx={spot.x - view.scrollX} cy={spot.y - view.scrollY} r={Math.min(70, 18 + (spot.end - spot.start) / 12)} className="heat" fill="url(#heat-spot)" />)}
-        {clicks.map((click, index) => <g key={index} className="click-mark"><circle cx={click.x - view.scrollX} cy={click.y - view.scrollY} r="11" /><text x={click.x - view.scrollX + 14} y={click.y - view.scrollY - 10}>{index + 1}</text></g>)}
+        {!figma && clicks.map((click, index) => <g key={index} className="click-mark"><circle cx={click.x - view.scrollX} cy={click.y - view.scrollY} r="11" /><text x={click.x - view.scrollX + 14} y={click.y - view.scrollY - 10}>{index + 1}</text></g>)}
       </svg>
     </div>
     <span className="chip replay-tag">{view.page} · {clock(candidate.start)}–{clock(candidate.end)} · {!session.quality.gazeEnabled ? 'gaze off' : lost && candidate.start >= lost.t ? 'camera lost' : `${spots.length} fixations`} · {clicks.length} clicks</span>
@@ -175,8 +186,10 @@ function SessionView({ session, analysis, reviews, selectedId, onSelect, onRevie
         {facePercent !== null && <span className="chip">{facePercent}% FRAMES WITH FACE{until && ` · ${until}`}</span>}
         {session.baseline?.from === 'tasks' && <span className="chip">FACE BASELINE FROM TASKS</span>}
         {drift !== null && <span className="chip">DRIFT CHECK ×{quality.driftChecks.length} · {drift} PX</span>}
+        {isFigmaStudy(session.study) && !quality.figmaEvents && <span className="chip strong">NO FIGMA EVENTS</span>}
         <span className="chip">NO VIDEO STORED</span>
         {lost?.reason && <p className="muted small">Camera lost: {lost.reason}.</p>}
+        {isFigmaStudy(session.study) && !quality.figmaEvents && <p className="muted small">The Figma embed sent no events, so clicks and screens were not recorded. Check that the study's client ID allows this site's address in Figma.</p>}
         {session.baseline?.from === 'tasks' && <p className="muted small">Calibration gave no face baseline, so brow and lean are compared with the participant's first face frames in the tasks.</p>}
       </div>
       {selected ? <Replay session={session} candidate={selected} fixations={analysis.fixations} /> : <div className="replay empty"><p className="muted">No moments were flagged in this session.</p></div>}
