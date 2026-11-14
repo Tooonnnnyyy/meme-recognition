@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { gazeFeatures, predictGaze } from './gaze'
 import { faceSample } from './Calibration'
 import { embedUrl } from './figma'
+import { SeqRating } from './Questionnaires'
 import { ThemeToggle } from '../ThemeToggle'
 
 const BASE = import.meta.env.BASE_URL
@@ -21,6 +22,8 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
   const [faceSeen, setFaceSeen] = useState(false)
   const [lastOutcome, setLastOutcome] = useState(null)
   const [confirmStop, setConfirmStop] = useState(false)
+  // After each task, the ease rating comes before the next task.
+  const [rating, setRating] = useState(false)
   const armedAt = useRef(0)
   const task = study.tasks[index]
   const taskRef = useRef(task)
@@ -43,6 +46,11 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
     recorder.endTask(outcome)
     setRunning(false)
     setLastOutcome(outcome)
+    setRating(true)
+  }
+  const rated = value => {
+    recorder.rateTask(value)
+    setRating(false)
     if (index + 1 >= study.tasks.length) onFinish()
     else setIndex(index + 1)
   }
@@ -112,9 +120,9 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
     </div>
     <div className="site-frame">
       <iframe ref={frameRef} title={study.kind === 'figma' ? 'Prototype being tested' : 'Website being tested'} src="about:blank" onLoad={loaded} allow="fullscreen" />
-      {!running && <div className="task-intro">
+      {!running && rating && <div className="task-intro"><SeqRating taskNumber={index + 1} outcome={OUTCOME_LABELS[lastOutcome]} onDone={rated} /></div>}
+      {!running && !rating && <div className="task-intro">
         <div className="panel intro-card">
-          {lastOutcome && <span className="chip live">PREVIOUS TASK · {OUTCOME_LABELS[lastOutcome].toUpperCase()}</span>}
           <span className="kicker">Task {index + 1} of {study.tasks.length}</span>
           <h2>{task.prompt}</h2>
           <p className="muted">Take your time and use the {study.kind === 'figma' ? 'prototype' : 'website'} as you normally would. You have up to {Math.round(task.limitSec / 60)} minutes.</p>
@@ -144,7 +152,8 @@ export function Finished({ session, saved, onSaved, onReview, onDelete }) {
     onSaved()
   }
   // Names only the camera data the file really has.
-  const camera = [session.gaze.length > 0 && 'estimates of where you looked', (session.face.length > 0 || session.baseline) && 'face movement as numbers', session.quality.accuracy && 'your calibration accuracy'].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' and $1')
+  const rated = session.tasks.some(task => task.seq != null) || session.sus
+  const camera = [rated && 'your ratings and answers', session.gaze.length > 0 && 'estimates of where you looked', (session.face.length > 0 || session.baseline) && 'face movement as numbers', session.quality.accuracy && 'your calibration accuracy'].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' and $1')
   return <div className="screen">
     <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study · {session.study.title} · participant {session.participant}</small></div></div><div className="actions"><span className="chip">CAMERA OFF</span><ThemeToggle /></div></header>
     <main className="finished">

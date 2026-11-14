@@ -8,6 +8,8 @@ import { Calibration } from './Calibration'
 import { TaskRunner, Finished } from './TaskRunner'
 import { Review } from './Review'
 import { Setup } from './Setup'
+import { Report } from './Report'
+import { SusForm } from './Questionnaires'
 import { decodeStudy } from './studyLink'
 import './research.css'
 
@@ -48,7 +50,10 @@ function linkedStudy() {
 }
 const LINKED = linkedStudy()
 const STUDY = LINKED.study
-const firstStep = () => (location.hash === '#review' ? 'review' : location.hash === '#setup' ? 'setup' : LINKED.error ? 'bad-link' : 'consent')
+// Researcher screens are hash routes; Review stays mounted once opened.
+const SCREENS = { '#review': 'review', '#setup': 'setup', '#report': 'report' }
+const RESEARCHER = Object.values(SCREENS)
+const firstStep = () => SCREENS[location.hash] || (LINKED.error ? 'bad-link' : 'consent')
 
 // Participant flow: consent → calibration (optional) → tasks → finished.
 // Researchers open research.html#review to load and review session files, and
@@ -81,15 +86,15 @@ function App() {
   useEffect(() => {
     const onHash = () => {
       const current = stepRef.current
-      const target = { '#review': 'review', '#setup': 'setup' }[location.hash]
+      const target = SCREENS[location.hash]
       if (target) {
         if (RECORDING.includes(current)) history.replaceState(null, '', location.pathname + location.search)
         else if (current !== target) {
-          if (!['review', 'setup'].includes(current)) backTo.current = current
+          if (!RESEARCHER.includes(current)) backTo.current = current
           if (target === 'review') setReviewKept(true)
           setStep(target)
         }
-      } else if (['review', 'setup'].includes(current)) setStep(backTo.current)
+      } else if (RESEARCHER.includes(current)) setStep(backTo.current)
     }
     addEventListener('hashchange', onHash)
     return () => removeEventListener('hashchange', onHash)
@@ -179,7 +184,7 @@ function App() {
     stopCamera()
     recorderRef.current.stop()
     setSession(recorderRef.current.session)
-    setStep('finished')
+    setStep('sus')
   }
 
   const discard = () => {
@@ -197,9 +202,11 @@ function App() {
     {step === 'loading' && <div className="center-note"><span className="kicker">Starting the camera</span><h2>Loading on-device vision…</h2><p className="muted">{status || 'This takes a few seconds the first time.'}</p></div>}
     {step === 'calibrate' && <Calibration subscribe={subscribe} aspect={aspect} onDone={calibrated} />}
     {step === 'tasks' && <TaskRunner study={STUDY} recorder={recorderRef.current} gazeModel={gazeModel} subscribe={subscribe} aspect={aspect} cameraOn={cameraOn} cameraLost={cameraLost} notice={status} onFinish={finish} onStop={discard} />}
+    {step === 'sus' && <SusForm study={STUDY} participant={participant} onDone={answers => { recorderRef.current?.setSus(answers); setStep('finished') }} />}
     {step === 'finished' && <Finished session={session} saved={saved} onSaved={() => setSaved(true)} onReview={() => { setReviewRequest(count => count + 1); location.hash = 'review' }} onDelete={discard} />}
     {step === 'deleted' && <div className="center-note"><span className="kicker">Session ended</span><h2>{saved ? 'Your data was deleted from this page' : 'Your data was deleted'}</h2><p className="muted">{saved ? 'The results file you downloaded is still in your downloads folder. Delete it there too if you do not want to keep it. You can close this tab.' : 'Nothing from this session was saved or sent. You can close this tab.'}</p></div>}
     {step === 'setup' && <Setup />}
+    {step === 'report' && <Report />}
     {step === 'bad-link' && <div className="center-note"><span className="kicker">Study link</span><h2>This link does not open a study</h2><p className="muted">{LINKED.error}</p></div>}
     {reviewKept && <div hidden={step !== 'review'}><Review initialSession={session} request={reviewRequest} hidden={step !== 'review'} /></div>}
   </div>
