@@ -72,6 +72,21 @@ What Figma mode records and detects:
 - Idle periods are off: mouse movement and key presses inside the Figma frame do not reach the page, so quiet reading would look idle.
 - The review replays the frame in the Figma embed. Click marks are not drawn, because Figma gives click positions inside the clicked layer, not the frame. A "No Figma events" chip shows when the embed sent nothing.
 
+## Questionnaires and the study report
+
+**After each task** the participant rates it with the Single Ease Question (SEQ, Sauro & Dumas 2009): "Overall, how difficult or easy was this task?", 1 very difficult to 7 very easy. A mean around 5.5 is typical; tasks below 5 deserve attention. Stored as `seq` on the task, or `null` if skipped.
+
+**After the last task** the participant can answer the System Usability Scale (SUS, Brooke 1996), with "system" replaced by "website" or "prototype". The score is computed as usual (odd items answer − 1, even items 5 − answer, sum × 2.5, 0–100) and graded on the Sauro–Lewis curve, where 68 is average (C) and A+ starts at 84.1. Stored as `sus: { answers, score }`, or `null` if skipped; the review screen rejects a file whose score does not match its answers.
+
+**Study report (`research.html#report`).** Load every participant's results file (several at once; duplicates count once). Files exported from the review screen also bring confirmations and severities. The report shows, per task:
+
+- completion rate (completed or said done, out of finished attempts) with an adjusted Wald 95% interval, which stays meaningful at 0/5 or 5/5;
+- time on task for completed attempts, as a geometric mean with a t interval on the log times, since task times are skewed;
+- SEQ mean with a t interval;
+- how many participants had flagged moments.
+
+It also gives the SUS mean with its interval and grade, and the problems: flagged moments grouped across participants by task and kind (for example "No response to a click on “Submit return”"), ranked by the highest confirmed severity, then confirmations, then the number of participants affected. Problems rejected in every file are left out. "Export report" saves a Markdown report; "Export CSV" saves every number with its interval. With fewer than 5 participants the intervals are wide; the screen says so.
+
 ## Session file
 
 JSON, version 1. Times are milliseconds since the session started. Pages are named by their page id, their path under `siteBase` without `.html`, such as `order-48213` or `cart/index`.

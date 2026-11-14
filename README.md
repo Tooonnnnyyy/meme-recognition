@@ -41,6 +41,7 @@ Gesture Meme Studio turns a webcam into an expressive controller. Hold an illust
 - **Researcher review:** open `research.html#review`, load a session file, confirm or reject each flagged moment with a 0–4 severity, and export the reviewed file. Files are read locally.
 - **Demo:** a fictional shop in `public/research-site/` contains three planted usability problems for the demo study.
 
+- **Questionnaires and study report:** an ease rating (SEQ) after each task and the System Usability Scale at the end, both optional. `research.html#report` combines every participant's file: completion rates, time on task and ease with 95% intervals, the SUS score and grade, and problems ranked by severity and frequency, exported as Markdown or CSV.
 - **Figma prototypes:** open `research.html#setup`, paste a Figma prototype link and a client ID, write the tasks, and send participants the link it makes. Unanswered clicks come from Figma's own hotspot report; frames give page loops and goal completion.
 
 Details, thresholds, the session file format and how to test your own prototype: [docs/usability-copilot.md](docs/usability-copilot.md).

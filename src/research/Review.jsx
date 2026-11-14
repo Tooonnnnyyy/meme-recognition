@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { describeSignal, detectSignals, findCandidates, sessionFixations, STRONG, MEDIUM, WEAK } from './signals'
 import { ThemeToggle } from '../ThemeToggle'
+import { ResearcherNav } from './ResearcherNav'
 import { embedUrl, isClientId, isFileKey, isNodeId } from './figma'
+import { isSeq, susGrade, susScore } from './questionnaire'
 
 const BASE = import.meta.env.BASE_URL
 const clock = ms => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
@@ -55,7 +57,9 @@ const fieldsFor = isPage => ({
     && optional(lost => isRecord(lost) && isNumber(lost.t) && optional(isText)(lost.taskId) && optional(isText)(lost.reason))(quality.cameraLost)
     && (quality.gazeEnabled ? isAccuracy : optional(isAccuracy))(quality.accuracy),
   baseline: optional(baseline => isRecord(baseline) && isNumber(baseline.brow) && isNumber(baseline.scale)),
-  tasks: listOf(task => isText(task.id) && isNumber(task.start) && optional(isNumber)(task.end) && optional(isText)(task.outcome) && optional(isText)(task.prompt)),
+  tasks: listOf(task => isText(task.id) && isNumber(task.start) && optional(isNumber)(task.end) && optional(isText)(task.outcome) && optional(isText)(task.prompt) && optional(isSeq)(task.seq)),
+  // The score must match the answers, so a hand-edited score is caught.
+  sus: optional(sus => isRecord(sus) && Array.isArray(sus.answers) && isNumber(sus.score) && susScore(sus.answers) === sus.score),
   events: listOf(event => isText(event.type) && isNumber(event.t) && optional(isText)(event.taskId) && optional(isNumber)(event.last) && (eventFields(isPage)[event.type]?.(event) ?? true)),
   gaze: optional(listOf(point => isNumber(point.t) && isPage(point.page) && isNumber(point.x) && isNumber(point.y) && optional(isNumber)(point.sx) && optional(isNumber)(point.sy))),
   face: optional(listOf(sample => isNumber(sample.t) && isNumber(sample.brow) && isNumber(sample.scale))),
@@ -69,7 +73,7 @@ const eventFields = isPage => ({
   scroll: event => isPage(event.page) && isNumber(event.x) && isNumber(event.y),
 })
 
-function readSession(text) {
+export function readSession(text) {
   const data = JSON.parse(text)
   if (!isRecord(data) || data.version !== 1) throw new FileError('This is not a Usability Copilot session file.')
   const FIELDS = fieldsFor(isFigmaStudy(data.study) ? isNodeId : isPath)
@@ -188,6 +192,11 @@ function SessionView({ session, analysis, reviews, selectedId, onSelect, onRevie
         {drift !== null && <span className="chip">DRIFT CHECK ×{quality.driftChecks.length} · {drift} PX</span>}
         {isFigmaStudy(session.study) && !quality.figmaEvents && <span className="chip strong">NO FIGMA EVENTS</span>}
         <span className="chip">NO VIDEO STORED</span>
+        {(session.tasks.some(task => task.seq != null) || session.sus) && <div className="ratings">
+          <span className="kicker">Ratings</span>
+          {session.tasks.map(task => <span key={task.id} className={`chip ${task.seq != null && task.seq < 5 ? 'strong' : ''}`} title="Single Ease Question, 1 very difficult to 7 very easy">{task.id} EASE {task.seq ?? '–'}/7</span>)}
+          {session.sus && <span className="chip live" title="System Usability Scale, 0–100; 68 is average">SUS {session.sus.score.toFixed(1)} · {susGrade(session.sus.score)}</span>}
+        </div>}
         {lost?.reason && <p className="muted small">Camera lost: {lost.reason}.</p>}
         {isFigmaStudy(session.study) && !quality.figmaEvents && <p className="muted small">The Figma embed sent no events, so clicks and screens were not recorded. Check that the study's client ID allows this site's address in Figma.</p>}
         {session.baseline?.from === 'tasks' && <p className="muted small">Calibration gave no face baseline, so brow and lean are compared with the participant's first face frames in the tasks.</p>}
@@ -301,12 +310,12 @@ export function Review({ initialSession, request = 0, hidden = false }) {
   const picker = <label className="btn ghost file-button" htmlFor="session-file">{session ? 'Load another file' : 'Choose a session file'}<input ref={inputRef} id="session-file" type="file" accept="application/json,.json" onChange={event => { const [file] = event.target.files; event.target.value = ''; if (file) load(file) }} /></label>
 
   if (!session) return <div className="screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Researcher review</small></div></div>{toggle}</header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Researcher review</small></div></div><div className="actions"><ResearcherNav current="#review" />{toggle}</div></header>
     <main className="center-note"><span className="kicker">Review a session</span><h2>Load a session file</h2><p className="muted">Participants download a results file at the end of a session. Load it here to see flagged moments. Files are read in this browser and not uploaded.</p>{picker}{error && <p className="warning" role="alert">{error}</p>}</main>
   </div>
 
   return <div className="screen review-screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Session review · {session.participant}</strong><small>{session.study.title} · {session.tasks.length} tasks · {clock(analysis.duration)}</small></div></div><div className="actions">{picker}<button className="btn secondary" onClick={exportFile}>Export reviewed file</button>{toggle}</div></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Session review · {session.participant}</strong><small>{session.study.title} · {session.tasks.length} tasks · {clock(analysis.duration)}</small></div></div><div className="actions"><ResearcherNav current="#review" />{picker}<button className="btn secondary" onClick={exportFile}>Export reviewed file</button>{toggle}</div></header>
     {error && <p className="warning banner" role="alert">{error}</p>}
     {pending && <div className="warning banner actions" role="group" aria-labelledby="replace-note" onKeyDown={event => event.key === 'Escape' && cancelLoad()}>
       <span id="replace-note">Your reviews for {session.participant} are not exported yet. Loading {pending.session.participant} will replace them.</span>

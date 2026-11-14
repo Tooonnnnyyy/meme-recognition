@@ -1,4 +1,5 @@
 import { FIGMA_ORIGIN, figmaTranslator } from './figma.js'
+import { isSeq, susScore } from './questionnaire.js'
 
 // Builds the session file while a participant works through the tasks. It
 // watches the test page inside a same-origin iframe: clicks, page changes,
@@ -245,6 +246,16 @@ export function createRecorder({ study, participant }) {
       task.end = now()
       task.outcome = outcome
       task = null
+    },
+    // The Single Ease Question for the task just ended, 1–7, or null if skipped.
+    rateTask(value) {
+      const last = session.tasks.at(-1)
+      if (last && last.end != null) last.seq = isSeq(value) ? value : null
+    },
+    // The ten SUS answers (1–5 each), or null if skipped.
+    setSus(answers) {
+      const score = susScore(answers)
+      session.sus = score == null ? null : { answers: [...answers], score }
     },
     get currentPage() { return page },
     stop() { detach() },
