@@ -1,17 +1,90 @@
-# Gesture Meme Studio
+# Usability Lab · Gesture Meme Studio
 
-> A local-first computer-vision playground where your face, hands, and body trigger playful reaction cards.
-
-**Privacy-first · Ten actions · Meme lookalike · Built with MediaPipe**
-
-Gesture Meme Studio turns a webcam into an expressive controller. Hold an illustrated action, let the on-device vision layer recognize it, and see a matching meme-style reaction appear — or switch to **Meme lookalike** and find out which meme face you are making. It is an experimental interaction prototype for testing gesture clarity, responsiveness, and playful feedback.
+> Local-first tools that run entirely in the browser: **Usability Lab** plans, runs and reports usability tests; **Gesture Meme Studio** turns your webcam into a playful gesture controller. No account, no backend, nothing uploaded.
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
 ![MediaPipe](https://img.shields.io/badge/MediaPipe-Tasks-0F9D58)
 ![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white)
-![Privacy](https://img.shields.io/badge/camera-local%20only-D8F36B?labelColor=1B1B1A)
+![Privacy](https://img.shields.io/badge/data-local%20only-D8F36B?labelColor=1B1B1A)
 
-## What it does
+## Links
+
+| What | Link |
+| --- | --- |
+| **Usability Lab** (researcher workspace) | https://tooonnnnyyy.github.io/meme-recognition/lab.html |
+| Participant test (demo study) | https://tooonnnnyyy.github.io/meme-recognition/research.html |
+| Review one session file | https://tooonnnnyyy.github.io/meme-recognition/research.html#review |
+| Study report (many files) | https://tooonnnnyyy.github.io/meme-recognition/research.html#report |
+| Figma study setup (link-based) | https://tooonnnnyyy.github.io/meme-recognition/research.html#setup |
+| Gesture Meme Studio | https://tooonnnnyyy.github.io/meme-recognition/ |
+| Figma prototype kit (practice prototype, Lab UI, components; owner's Figma team, ask for access) | https://www.figma.com/design/6SMUW9DjvtgLiGc8FjVY3C |
+| Usability Lab guide | [docs/usability-lab.md](docs/usability-lab.md) |
+| Usability Copilot details (signals, session file, own prototypes) | [docs/usability-copilot.md](docs/usability-copilot.md) |
+| Product strategy (Chinese) | [docs/strategy/usability-lab-product-line.zh.md](docs/strategy/usability-lab-product-line.zh.md) |
+
+Works best in a desktop Chrome or Edge. Data is stored only in your own browser; back it up with **Export**.
+
+## How to use Usability Lab
+
+### Try it in five minutes
+
+1. Open [Usability Lab](https://tooonnnnyyy.github.io/meme-recognition/lab.html) and click **Try the demo study**.
+2. Go to **Run** → **Run a pilot**. Tick the consent box and click **Begin session**.
+3. Press **Enter** to start a task. While it runs, press **P** (problem), **Q** (quote), **N** (note), **A** (assist) or **E** (error), type the note and press **Enter**. Add `#tags` to group notes across participants.
+4. End the task with **1** success, **2** partial, **3** failed or gave up, **4** skipped. The participant rates how easy it was, and answers the SUS at the end.
+5. Open **Results** → **Review** to see the session, or **Report** for the study as a whole.
+
+### Run a real study (moderated, on your computer)
+
+1. **New study → Plan.** Give it a title and choose:
+   - **How sessions run:** *Moderated, on this computer*.
+   - **What participants use:**
+     - *Any prototype or app*: a live website, a mobile app, ProtoPie, Axure, or paper;
+     - *Figma prototype*: paste the prototype link;
+     - *Demo shop*.
+2. **Tasks.** For each task, write what the participant reads and what success looks like, and set a time limit. Write the success criteria before the sessions, so every participant is judged the same way.
+3. **Questions and design.**
+   - Choose SEQ after each task, and SUS or UMUX-Lite at the end.
+   - Turn on counterbalancing (Williams Latin square) for 2 or more tasks.
+   - Set the number of planned participants (5 finds most big problems).
+4. **Documents.** Fill in your name, institution, contact, purpose and ethics board, then download:
+   - the **consent form** draft (TCPS 2 elements);
+   - the **data management statement**.
+
+   Adapt both to your ethics board's template.
+5. **Run.**
+   - Start with a pilot on yourself; pilots stay out of the report.
+   - Then run P01, P02… Every note and outcome is saved as it happens.
+6. **Results and Report.**
+   - Review each session.
+   - Open the report: completion (including partial success), time on task, ease (SEQ), SUS or UMUX-Lite, observed problems grouped by `#tag`, and quotes.
+   - Export it as Markdown or CSV for your write-up.
+
+### Run an unmoderated study (by link)
+
+- **Figma:** in Plan choose *Unmoderated, by link* and *Figma prototype*, paste the prototype link and a **Figma client ID**, then copy the participant link from **Run**.
+  - To get a client ID, create an app in Figma's developer settings and allow `https://tooonnnnyyy.github.io` as an embed origin.
+- **Participants:** they open the link, work through the tasks, and download a results file at the end. Add the files under **Run → Add results files**.
+
+### Practise with the Figma prototype kit
+
+The [Figma prototype kit](https://www.figma.com/design/6SMUW9DjvtgLiGc8FjVY3C) holds a clickable "drop a course" prototype of a fictional university portal with five planted usability problems. Its **00 Guide** page lists:
+- the tasks and their success criteria;
+- an answer key for instructors;
+- the steps to run it in Usability Lab.
+
+### Move or back up your data
+
+- **Export** on a study card saves the study and its sessions as one file.
+- **Back up all** saves everything.
+- **Import** restores a file on another computer.
+- Clearing the browser's site data deletes the workspace, so export first.
+
+## Gesture Meme Studio
+
+Gesture Meme Studio turns a webcam into an expressive controller. Hold an illustrated action, let the on-device vision layer recognize it, and see a matching meme-style reaction appear — or switch to **Meme lookalike** and find out which meme face you are making. Open it at https://tooonnnnyyy.github.io/meme-recognition/, select **Enable camera**, and hold one of the ten actions until the reaction fires.
+
+### What it does
 
 - Detects face, hand, and pose signals from a live browser camera.
 - Runs the models in a background **Web Worker**, on the **GPU** when real graphics hardware is available and on the CPU otherwise, so the page stays responsive.
@@ -22,7 +95,7 @@ Gesture Meme Studio turns a webcam into an expressive controller. Hold an illust
 - Draws a local landmark overlay and exposes candidate, confidence, engine, and speed in the HUD.
 - Keeps keyboard and button controls as clearly labelled **simulation** tools for UI review.
 
-## Modes
+### Modes
 
 **Meme reactions** — hold one of ten poses to fire a reaction card.
 
@@ -32,7 +105,7 @@ Gesture Meme Studio turns a webcam into an expressive controller. Hold an illust
 
 **Meme lookalike** — your expression is compared with every meme face in [`src/meme-library.js`](src/meme-library.js) and the closest one is shown with a match score. Start the **5-second challenge** to copy a random meme as closely as you can. Photos of real faces are read automatically; for cartoons or animals, press **Use my face** to record your own version. To add a meme, drop an image into `public/reactions/` and add one line to the library.
 
-## Usability Copilot
+## Usability Copilot (participant runtime)
 
 `research.html` turns the same on-device vision engine into a usability-testing assistant. A participant works through tasks on a website while the page records clicks, page changes, approximate gaze areas and facial movement. Afterwards it flags the moments where they probably got stuck, so a researcher reviews those instead of a whole recording.
 
@@ -54,7 +127,7 @@ npm install --prefer-offline --no-audit --no-fund
 npm run dev -- --host 127.0.0.1 --port 4185 --strictPort
 ```
 
-Open [http://127.0.0.1:4185/](http://127.0.0.1:4185/) in Chrome, select **Enable camera**, and copy one of the action guides. Hold a pose briefly until the HUD locks a candidate and the reaction fires.
+Open [http://127.0.0.1:4185/](http://127.0.0.1:4185/) in Chrome, select **Enable camera**, and copy one of the action guides. Hold a pose briefly until the HUD locks a candidate and the reaction fires. Usability Lab runs at [http://127.0.0.1:4185/lab.html](http://127.0.0.1:4185/lab.html) and the participant runtime at [http://127.0.0.1:4185/research.html](http://127.0.0.1:4185/research.html).
 
 ## Verify
 
@@ -141,13 +214,16 @@ src/                 React UI, vision engine, and gesture rules
   lookalike.js       Expression vectors, cosine similarity, ranking
   Lookalike.jsx      Meme lookalike panel, library, and challenge
   meme-library.js    Meme faces used by Meme lookalike
-  research/          Usability Copilot (research.html): gaze, signals, recorder, UI
+  research/          Usability Copilot (research.html): gaze, signals, recorder, review,
+                     report, questionnaires, study model, Figma embed
+  lab/               Usability Lab (lab.html): workspace store, studies, plan, console
 public/vision/       Local MediaPipe models and WASM runtime
 public/reactions/    Local reaction images
 public/research-site/ Fictional shop used by the Usability Copilot demo study
 scripts/             Security and MediaPipe runtime checks
 tests/               Rule, smoothing, calibration, lookalike, gaze, signal and recorder tests
-docs/                P0 validation protocol, Usability Copilot guide
+docs/                P0 validation protocol, Usability Copilot and Usability Lab guides,
+                     product strategy
 ```
 
 ## License
