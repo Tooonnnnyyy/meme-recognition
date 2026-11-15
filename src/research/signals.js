@@ -90,7 +90,7 @@ function deadClicks(session, settings) {
       previous.end = click.t
       previous.count += 1
     } else {
-      signals.push({ kind: 'dead-click', strength: STRONG, taskId: click.taskId, start: click.t, end: click.t, count: 1, detail: { selector, label: click.target?.label, aoi: click.target?.aoi || null, x: click.x, y: click.y } })
+      signals.push({ kind: 'dead-click', strength: STRONG, taskId: click.taskId, start: click.t, end: click.t, count: 1, detail: { selector, label: click.target?.label, aoi: click.target?.aoi || null, page: click.page ?? null, x: click.x, y: click.y } })
     }
   })
   return signals
@@ -104,7 +104,7 @@ function rageClicks(session, settings) {
     const first = clicks[index]
     const burst = clicks.slice(index).filter(click => click.taskId === first.taskId && click.t - first.t <= settings.rageWindowMs && Math.hypot(click.x - first.x, click.y - first.y) <= settings.rageRadiusPx)
     if (burst.length >= settings.rageClicks) {
-      signals.push({ kind: 'rage-click', strength: STRONG, taskId: first.taskId, start: first.t, end: burst[burst.length - 1].t, count: burst.length, detail: { label: first.target?.label, aoi: first.target?.aoi || null } })
+      signals.push({ kind: 'rage-click', strength: STRONG, taskId: first.taskId, start: first.t, end: burst[burst.length - 1].t, count: burst.length, detail: { selector: first.target?.selector, label: first.target?.label, aoi: first.target?.aoi || null, page: first.page ?? null } })
       index = clicks.indexOf(burst[burst.length - 1]) + 1
     } else index += 1
   }

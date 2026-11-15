@@ -315,3 +315,5 @@ h1, h2, h3 { margin: 0; letter-spacing: -.02em; text-wrap: balance; }
   .sus-scale { grid-template-columns: 1fr; }
   .seq-scale { gap: 4px; }
 }
+.banner-note { margin: 0; }
+.report-table small.warn { display: block; }

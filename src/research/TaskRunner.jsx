@@ -98,7 +98,11 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
     setRunning(true)
     if (study.kind === 'figma') {
       // The embed posts its frames; reaching the goal frame completes the task.
-      recorder.attachFigma(frameRef.current, { onPage: page => { if (runningRef.current && page === taskRef.current.successPage) finishRef.current('success') } })
+      // The clock and time limit restart when the prototype has loaded.
+      recorder.attachFigma(frameRef.current, {
+        onReady: () => { startedAt.current = performance.now(); setElapsed(0) },
+        onPage: page => { if (runningRef.current && page === taskRef.current.successPage) finishRef.current('success') },
+      })
       frameRef.current.src = embedUrl(study.figma, task.start || study.figma.startNodeId)
     } else frameRef.current.src = `${BASE}${study.siteBase}${task.start}`
   }

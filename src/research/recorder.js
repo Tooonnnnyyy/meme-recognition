@@ -175,8 +175,10 @@ export function createRecorder({ study, participant }) {
   }
 
   // Call when a task opens the Figma embed in iframe. onPage(page) is called
-  // with each frame shown, so the caller can see the task's goal reached.
-  const attachFigma = (iframe, { onPage } = {}) => {
+  // with each frame shown, so the caller can see the task's goal reached, and
+  // onReady() once, when the prototype first answers: the running task records
+  // that time as `ready`, so time on task leaves out Figma's loading time.
+  const attachFigma = (iframe, { onPage, onReady } = {}) => {
     detach()
     crossOrigin = true
     frame = iframe
@@ -189,6 +191,10 @@ export function createRecorder({ study, participant }) {
       const action = translate(event.data, now())
       if (!action) return
       session.quality.figmaEvents += 1
+      if (task && task.ready == null && ['ready', 'navigate'].includes(action.type)) {
+        task.ready = now()
+        onReady?.()
+      }
       if (action.type === 'navigate') {
         page = action.page
         session.aois[page] ??= []

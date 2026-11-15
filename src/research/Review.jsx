@@ -57,7 +57,7 @@ const fieldsFor = isPage => ({
     && optional(lost => isRecord(lost) && isNumber(lost.t) && optional(isText)(lost.taskId) && optional(isText)(lost.reason))(quality.cameraLost)
     && (quality.gazeEnabled ? isAccuracy : optional(isAccuracy))(quality.accuracy),
   baseline: optional(baseline => isRecord(baseline) && isNumber(baseline.brow) && isNumber(baseline.scale)),
-  tasks: listOf(task => isText(task.id) && isNumber(task.start) && optional(isNumber)(task.end) && optional(isText)(task.outcome) && optional(isText)(task.prompt) && optional(isSeq)(task.seq)),
+  tasks: listOf(task => isText(task.id) && isNumber(task.start) && optional(isNumber)(task.end) && optional(isText)(task.outcome) && optional(isText)(task.prompt) && optional(isSeq)(task.seq) && optional(isNumber)(task.ready)),
   // The score must match the answers, so a hand-edited score is caught.
   sus: optional(sus => isRecord(sus) && Array.isArray(sus.answers) && isNumber(sus.score) && susScore(sus.answers) === sus.score),
   events: listOf(event => isText(event.type) && isNumber(event.t) && optional(isText)(event.taskId) && optional(isNumber)(event.last) && (eventFields(isPage)[event.type]?.(event) ?? true)),

@@ -26,9 +26,19 @@ export function checkStudy(study) {
   return study
 }
 
+// A short FNV-1a hash of the study's title and tasks.
+function fingerprint(study) {
+  const text = JSON.stringify([study.title.trim(), study.tasks.map(task => [task.prompt.trim(), task.start || null, task.successPage || null, task.limitSec])])
+  let hash = 0x811c9dc5
+  for (const char of text) hash = Math.imul(hash ^ char.codePointAt(0), 0x01000193) >>> 0
+  return hash.toString(36)
+}
+
 // Only the fields a study uses are kept, so a link carries nothing else.
 const pick = study => ({
-  id: `figma-${study.figma.fileKey}`,
+  // Two studies on one Figma file get different ids (title and tasks are
+  // part of the id), so the report can tell them apart.
+  id: `figma-${study.figma.fileKey}-${fingerprint(study)}`,
   kind: 'figma',
   title: study.title.trim(),
   figma: { fileKey: study.figma.fileKey, name: study.figma.name, startNodeId: study.figma.startNodeId || null, clientId: study.figma.clientId },
