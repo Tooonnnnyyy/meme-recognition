@@ -131,6 +131,16 @@ export function localeFor(lang, languages = browserLanguages()) {
   return languages.find(tag => /^en(?:-|$)/i.test(String(tag || ''))) || 'en'
 }
 export const formatNumber = (lang, value, options) => new Intl.NumberFormat(localeFor(lang), options).format(value)
+// A duration in seconds as words: "30 seconds", "5 minutes", "1 min 30 s".
+export function durationText(lang, seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0))
+  const min = Math.floor(total / 60)
+  const sec = total % 60
+  if (!min) return translate(lang, 'common.duration.seconds', { count: sec })
+  if (!sec) return translate(lang, 'common.duration.minutes', { count: min })
+  return translate(lang, 'common.duration.minSec', { min, sec })
+}
+
 // A missing or invalid date shows as an empty string instead of throwing.
 export function formatDate(lang, value, options = { dateStyle: 'medium' }) {
   const date = new Date(value)

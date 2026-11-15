@@ -278,12 +278,13 @@ export function createRecorder({ study, participant }) {
       if (score) answeredIn(lang)
     },
     // A moderator's note, stamped with the time and the running (or last) task.
+    // Between tasks the console passes the upcoming task's id as taskId.
     // #words in the text become tags, which group notes across participants.
-    addNote(kind, text) {
+    addNote(kind, text, taskId) {
       const clean = text.trim()
       if (!clean) return null
       const tags = [...new Set((clean.match(/#[\p{L}\p{N}_-]+/gu) || []).map(tag => tag.slice(1).toLowerCase()))]
-      const note = { t: now(), taskId: task?.id ?? session.tasks.at(-1)?.id ?? null, kind, text: clean.replace(/\s*#[\p{L}\p{N}_-]+/gu, '').trim() || clean, tags }
+      const note = { t: now(), taskId: task?.id ?? taskId ?? session.tasks.at(-1)?.id ?? null, kind, text: clean.replace(/\s*#[\p{L}\p{N}_-]+/gu, '').trim() || clean, tags }
       session.notes ??= []
       session.notes.push(note)
       return note

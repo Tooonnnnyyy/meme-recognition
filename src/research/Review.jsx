@@ -64,7 +64,7 @@ const isFigmaStudy = study => isRecord(study) && study.kind === 'figma'
 const isObservedStudy = study => isRecord(study) && study.kind === 'observed'
 const fieldsFor = isPage => ({
   study: study => isRecord(study) && isText(study.title) && (isFigmaStudy(study)
-    ? isRecord(study.figma) && isFileKey(study.figma.fileKey) && isText(study.figma.name) && optional(isClientId)(study.figma.clientId)
+    ? isRecord(study.figma) && isFileKey(study.figma.fileKey) && isText(study.figma.name) && optional(id => id === '' || isClientId(id))(study.figma.clientId)
     : isObservedStudy(study) || isPath(study.siteBase)),
   mode: optional(mode => ['moderated', 'unmoderated'].includes(mode)),
   pilot: optional(pilot => typeof pilot === 'boolean'),

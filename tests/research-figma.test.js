@@ -32,7 +32,15 @@ test('the embed opens at the frame, with the client id and without hotspot hints
 test('a study survives the participant link, and a bad one is refused', () => {
   const decoded = decodeStudy(encodeStudy(study))
   assert.match(decoded.id, /^figma-AbCdEf1234567890-[0-9a-z]+$/)
-  assert.deepEqual({ ...decoded, id: undefined, lang: undefined }, { ...study, id: undefined, lang: undefined })
+  assert.deepEqual({ ...decoded, id: undefined, lang: undefined, questionnaire: undefined }, { ...study, id: undefined, lang: undefined, questionnaire: undefined })
+  // A link without questionnaire settings keeps the old ones: SEQ and SUS.
+  assert.deepEqual(decoded.questionnaire, { seq: true, post: 'sus' })
+  const umux = decodeStudy(encodeStudy({ ...study, questionnaire: { seq: false, post: 'umux-lite' } }))
+  assert.deepEqual(umux.questionnaire, { seq: false, post: 'umux-lite' })
+  assert.throws(() => decodeStudy(encodeStudy({ ...study, questionnaire: { seq: 'no' } })), /questionnaire/)
+  // Who to send the results file to travels when the researcher typed it.
+  assert.equal(decoded.contact, undefined)
+  assert.deepEqual(decodeStudy(encodeStudy({ ...study, contact: { researcher: 'A. Researcher', contact: 'a@example.org' } })).contact, { researcher: 'A. Researcher', contact: 'a@example.org' })
   // The study's language travels too; a link without one means English.
   assert.equal(decoded.lang, 'en')
   assert.equal(decodeStudy(encodeStudy({ ...study, lang: 'zh' })).lang, 'zh')
@@ -69,4 +77,23 @@ test('in a Figma study a click off any hotspot is unanswered, a hotspot click is
   const signals = detectSignals(session)
   assert.deepEqual(signals.filter(signal => signal.kind === 'dead-click').map(signal => signal.start), [30000])
   assert.equal(signals.filter(signal => signal.kind === 'idle').length, 0)
+})
+
+test('a demo link carries the study options, and reads back with defaults', async () => {
+  const { demoLink, demoOptions } = await import('../src/research/studyLink.js')
+  const plain = demoLink({ lang: 'zh', questionnaire: { seq: true, post: 'sus' } }, 'https://example.org/research.html')
+  assert.equal(plain, 'https://example.org/research.html?lang=zh')
+  assert.deepEqual(demoOptions(new URL(plain).search), { lang: 'zh', questionnaire: { seq: true, post: 'sus' }, contact: null })
+  const custom = demoLink({ lang: 'en', questionnaire: { seq: false, post: 'none' }, contact: { researcher: 'A. Researcher', contact: 'a@example.org' } }, 'https://example.org/research.html')
+  assert.deepEqual(demoOptions(new URL(custom).search), { lang: 'en', questionnaire: { seq: false, post: 'none' }, contact: { researcher: 'A. Researcher', contact: 'a@example.org' } })
+  assert.deepEqual(demoOptions('?post=other&seq=1'), { lang: null, questionnaire: { seq: true, post: 'sus' }, contact: null })
+})
+
+test('a session is finished when stamped, or when every task of a participant file ended', async () => {
+  const { isFinished } = await import('../src/research/sessionStatus.js')
+  assert.equal(isFinished({ mode: 'moderated', tasks: [{ end: 5 }] }), false)
+  assert.equal(isFinished({ mode: 'moderated', finishedAt: '2026-11-15T00:00:00Z', tasks: [] }), true)
+  assert.equal(isFinished({ tasks: [{ end: 5 }, { end: 9 }] }), true)
+  assert.equal(isFinished({ tasks: [{ end: 5 }, { end: null }] }), false)
+  assert.equal(isFinished({ tasks: [] }), false)
 })

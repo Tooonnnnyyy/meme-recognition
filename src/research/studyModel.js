@@ -1,5 +1,6 @@
 import { isClientId, isFileKey, isNodeId } from './figma.js'
 import { DEMO_STUDY, demoTasks } from './study.js'
+import { LINK_LIMITS, runtimeContact, runtimeQuestionnaire } from './studyLink.js'
 import { isLang, LANGS, translate } from '../i18n/index.js'
 
 // The study definition the researcher workspace (lab.html) builds and keeps.
@@ -22,6 +23,11 @@ const langOf = lang => (isLang(lang) ? lang : 'en')
 
 const isText = (value, max) => typeof value === 'string' && value.trim().length > 0 && value.length <= max
 const createdId = () => `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+
+// How many tasks, and how long each, a study can have. An unmoderated study
+// travels in a link, which carries less.
+export const LIMITS = { moderated: { tasks: 12, limitSec: 3600 }, unmoderated: LINK_LIMITS }
+export const limitsFor = study => LIMITS[study?.method === 'unmoderated' ? 'unmoderated' : 'moderated']
 
 export const newTask = number => ({ id: `T${number}`, prompt: '', success: '', limitSec: 300, start: null, successPage: null })
 
@@ -71,11 +77,13 @@ export function studyProblems(study, lang = 'en') {
   const t = (key, vars) => translate(lang, `study.problem.${key}`, vars)
   const problems = []
   if (!isText(study.title, 120)) problems.push(t('title'))
+  const limits = limitsFor(study)
   if (!study.tasks.length) problems.push(t('noTasks'))
+  else if (study.tasks.length > limits.tasks) problems.push(t('taskCount', { max: limits.tasks }))
   study.tasks.forEach((task, index) => {
     const number = index + 1
     if (!isText(task.prompt, 300)) problems.push(t('taskPrompt', { number }))
-    if (!Number.isInteger(task.limitSec) || task.limitSec < 30 || task.limitSec > 3600) problems.push(t('taskLimit', { number }))
+    if (!Number.isInteger(task.limitSec) || task.limitSec < 30 || task.limitSec > limits.limitSec) problems.push(t('taskLimit', { number, max: limits.limitSec / 60 }))
     if (study.source.kind === 'figma' && ((task.start && !isNodeId(task.start)) || (task.successPage && !isNodeId(task.successPage)))) problems.push(t('taskFrame', { number }))
   })
   if (study.source.kind === 'figma') {
@@ -116,12 +124,18 @@ export function toRuntimeStudy(study, order = study.tasks.map(task => task.id)) 
   const lang = isLang(study.lang) ? study.lang : 'en'
   const tasks = order.map(id => study.tasks.find(task => task.id === id)).filter(Boolean)
     .map(task => ({ id: task.id, prompt: task.prompt.trim(), start: task.start || null, successPage: task.successPage || null, limitSec: task.limitSec }))
+  // The questionnaires to ask, and who an unmoderated participant sends the
+  // results file to (from the consent fields).
+  const questionnaire = runtimeQuestionnaire(study)
+  const contact = runtimeContact({ contact: { researcher: study.consent?.researcher, contact: study.consent?.contact } })
+  const shared = { lang, questionnaire, ...(contact ? { contact } : {}) }
   if (study.source.kind === 'figma') {
     const { figma } = study.source
-    return { id: study.id, kind: 'figma', lang, title: study.title.trim(), figma: { fileKey: figma.fileKey, name: figma.name, startNodeId: figma.startNodeId || null, clientId: figma.clientId || '' }, tasks }
+    // No client ID is null, not '': session files are checked with isClientId.
+    return { id: study.id, kind: 'figma', ...shared, title: study.title.trim(), figma: { fileKey: figma.fileKey, name: figma.name, startNodeId: figma.startNodeId || null, clientId: figma.clientId || null }, tasks }
   }
-  if (study.source.kind === 'demo') return { id: study.id, lang, title: study.title.trim(), siteBase: DEMO_STUDY.siteBase, tasks: tasks.map(task => ({ ...task, start: task.start || 'orders.html' })) }
-  return { id: study.id, kind: 'observed', lang, title: study.title.trim(), tasks }
+  if (study.source.kind === 'demo') return { id: study.id, ...shared, title: study.title.trim(), siteBase: DEMO_STUDY.siteBase, tasks: tasks.map(task => ({ ...task, start: task.start || 'orders.html' })) }
+  return { id: study.id, kind: 'observed', ...shared, title: study.title.trim(), tasks }
 }
 
 // Text typed into a consent field, or null when it is empty.
