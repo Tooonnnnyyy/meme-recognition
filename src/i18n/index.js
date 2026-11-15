@@ -123,7 +123,16 @@ export class TextError extends Error {
 }
 export const errorText = (t, error) => (error && error.key ? t(error.key, error.vars) : String(error?.message || error))
 
-// Numbers and dates in the reader's conventions.
-export const LOCALE = { en: 'en-CA', zh: 'zh-CN' }
-export const formatNumber = (lang, value, options) => new Intl.NumberFormat(LOCALE[lang] || LOCALE.en, options).format(value)
-export const formatDate = (lang, value, options = { dateStyle: 'medium' }) => new Intl.DateTimeFormat(LOCALE[lang] || LOCALE.en, options).format(new Date(value))
+// Numbers and dates in the reader's conventions. English keeps the
+// browser's own English locale (en-US, en-GB, en-CA…), as the pages did
+// before they had a language switch; Chinese uses zh-CN.
+export function localeFor(lang, languages = browserLanguages()) {
+  if (lang === 'zh') return 'zh-CN'
+  return languages.find(tag => /^en(?:-|$)/i.test(String(tag || ''))) || 'en'
+}
+export const formatNumber = (lang, value, options) => new Intl.NumberFormat(localeFor(lang), options).format(value)
+// A missing or invalid date shows as an empty string instead of throwing.
+export function formatDate(lang, value, options = { dateStyle: 'medium' }) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat(localeFor(lang), options).format(date)
+}

@@ -4,6 +4,7 @@ import { consentDocument, dataFlowStatement, demoStudy, newStudy, newTask, study
 import { umuxLiteScore } from '../src/research/questionnaire.js'
 import { buildReport, reportCsv, reportMarkdown } from '../src/research/studyReport.js'
 import { exportPackage, importPackage, saveSession, saveStudy, sessionsOf, workspace } from '../src/lab/workspace.js'
+import { errorText, translator } from '../src/i18n/index.js'
 
 test('Williams squares balance first position and carry-over', () => {
   for (const n of [2, 3, 4, 5, 6]) {
@@ -113,4 +114,70 @@ test('the workspace keeps studies and sessions, and packages round-trip', async 
   assert.deepEqual(result, { studies: 1, sessions: 2 })
   assert.equal((await store.getStudy(study.id)).title, 'Round trip')
   await assert.rejects(importPackage({ format: 'other' }, JSON.parse), /not a Usability Lab package/)
+})
+
+const han = /\p{Script=Han}/u
+
+test('the consent draft and the data statement are written in the study language', () => {
+  const study = { ...demoStudy('zh'), title: '课程退选研究', consent: { ...demoStudy('zh').consent, researcher: '张三', ethicsBoard: '伦理办公室', ethicsNumber: 'H-2026-01' } }
+  const consent = consentDocument(study)
+  assert.equal(consent, consentDocument(study, 'zh'))
+  for (const part of ['谁在开展这项研究', '我们为什么开展这项研究', '你需要做什么', '会记录哪些内容', '风险与益处', '自愿参加', '我们如何保护你的信息', '报酬', '疑问与顾虑', '同意声明']) assert.ok(consent.includes(`## ${part}\n`), part)
+  assert.ok(consent.startsWith('# 可用性研究参与知情同意书：课程退选研究\n'))
+  assert.match(consent, /\*\*研究者\*\*：张三/)
+  assert.match(consent, /\[电子邮箱或电话\]/)
+  assert.match(consent, /完成3个简短的任务/)
+  assert.match(consent, /系统可用性量表（SUS）/)
+  assert.match(consent, /伦理办公室（伦理审批编号：H-2026-01）/)
+  assert.match(consent, /本研究的目的是了解在网上为订单办理退货有多容易。/)
+  assert.doesNotMatch(consent, /\b(?:the|and|you)\b/i)
+  // The same study can still be drafted in English, and our default texts follow.
+  const english = consentDocument(study, 'en')
+  assert.match(english, /## Who is doing this study/)
+  assert.match(english, /12 months after the study ends/)
+  assert.match(english, /The purpose is to find out how easy it is to return an online order\./)
+  const data = dataFlowStatement(study)
+  assert.ok(data.startsWith('# 数据管理：课程退选研究\n'))
+  assert.match(data, /\| 数据 \| 收集方式 \| 存储位置 \| 谁可以查看 \| 保存期限 \|/)
+  assert.match(data, /原型中的点击和画面/)
+  assert.match(data, /研究结束后12个月/)
+  assert.doesNotMatch(dataFlowStatement({ ...study, source: { kind: 'none' } }), /原型中的点击/)
+  // What the researcher typed is never translated.
+  const typed = { ...study, consent: { ...study.consent, retention: 'Two years', purpose: 'to test the new checkout' } }
+  assert.match(consentDocument(typed), /\*\*保存期限\*\*：Two years/)
+  assert.match(consentDocument(typed), /本研究的目的是to test the new checkout。/)
+  assert.match(consentDocument({ ...newStudy({ lang: 'zh' }), title: '' }), /# 可用性研究参与知情同意书：\[研究标题\]/)
+})
+
+test('study problems and the demo study come in Chinese', () => {
+  const study = newStudy({ lang: 'zh' })
+  assert.equal(study.consent.retention, '研究结束后12个月')
+  assert.equal(newStudy().consent.retention, '12 months after the study ends')
+  const problems = studyProblems(study, 'zh')
+  assert.deepEqual(problems, ['请为研究填写标题。', '任务1需要填写给参与者的任务说明。'])
+  assert.ok(studyProblems({ ...study, title: 'x', tasks: [{ ...newTask(1), prompt: 'p' }], method: 'unmoderated' }, 'zh').every(problem => han.test(problem)))
+  assert.deepEqual(studyProblems(study), ['Give the study a title.', 'Task 1 needs instructions for the participant.'])
+  const demo = demoStudy('zh')
+  assert.equal(demo.lang, 'zh')
+  assert.equal(demo.title, 'Northwind 退货流程（演示）')
+  assert.ok(demo.tasks.every(task => han.test(task.prompt) && han.test(task.success)))
+  assert.deepEqual(demo.tasks.map(task => task.successPage), demoStudy().tasks.map(task => task.successPage))
+  assert.deepEqual(studyProblems(demo, 'zh'), [])
+  assert.equal(demoStudy().lang, 'en')
+  assert.equal(demoStudy('fr').lang, 'en')
+})
+
+test('runtime copies keep the study language', () => {
+  const runtime = toRuntimeStudy(demoStudy('zh'))
+  assert.equal(runtime.lang, 'zh')
+  assert.ok(runtime.tasks.every(task => han.test(task.prompt)))
+  assert.equal(toRuntimeStudy({ ...newStudy({ title: 'x', lang: 'zh' }) }).lang, 'zh')
+  const figma = { ...newStudy({ title: 'x', lang: 'zh' }), source: { kind: 'figma', figma: { fileKey: 'AbCdEf1234567890', name: 'Shop' } } }
+  assert.equal(toRuntimeStudy(figma).lang, 'zh')
+  assert.equal(toRuntimeStudy({ ...newStudy({ title: 'x' }), lang: 'xx' }).lang, 'en')
+})
+
+test('package errors can be shown in Chinese', async () => {
+  await assert.rejects(importPackage({ format: 'other' }, JSON.parse), error => error.key === 'study.import.notPackage' && errorText(translator('zh'), error) === '这不是 Usability Lab 的数据包文件。')
+  await assert.rejects(importPackage({ format: 'usability-lab/package@1', studies: [{ id: 1 }], sessions: [] }, JSON.parse), error => error.message === 'A study in this package is damaged.' && han.test(errorText(translator('zh'), error)))
 })

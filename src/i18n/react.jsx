@@ -2,7 +2,10 @@ import React, { Fragment, useMemo, useSyncExternalStore } from 'react'
 import { CHOICES, HTML_LANG, LANGS, NATIVE, currentChoice, currentLang, pinLang, setChoice, subscribe, translator } from './index.js'
 
 // The language this screen renders in; re-renders when it changes.
-export const useLang = () => useSyncExternalStore(subscribe, currentLang, () => 'en')
+const serverLang = () => 'en'
+const serverChoice = () => 'system'
+
+export const useLang = () => useSyncExternalStore(subscribe, currentLang, serverLang)
 
 // t(key, vars) for the current language, with t.lang.
 export function useT() {
@@ -35,13 +38,14 @@ export function Rich({ text, tags = {} }) {
 export function LangToggle({ pinned = false }) {
   const t = useT()
   const lang = useLang()
-  const choice = useSyncExternalStore(subscribe, currentChoice, () => 'system')
+  const choice = useSyncExternalStore(subscribe, currentChoice, serverChoice)
   const options = pinned ? LANGS : CHOICES
   return <div className="theme-toggle lang-toggle" role="group" aria-label={t('common.language')}>
     {options.map(id => {
       const pressed = pinned ? lang === id : choice === id
-      if (id === 'system') return <button key={id} type="button" aria-pressed={pressed} title={t('common.languageAutoHint')} onClick={() => setChoice('system')}>{t('common.languageAuto')}</button>
-      return <button key={id} type="button" lang={HTML_LANG[id]} aria-pressed={pressed} aria-label={NATIVE[id]} onClick={() => (pinned ? pinLang(id) : setChoice(id))}>{id === 'en' ? 'EN' : NATIVE[id]}</button>
+      return id === 'system'
+        ? <button key={id} type="button" aria-pressed={pressed} title={t('common.languageAutoHint')} onClick={() => setChoice('system')}>{t('common.languageAuto')}</button>
+        : <button key={id} type="button" lang={HTML_LANG[id]} aria-pressed={pressed} aria-label={NATIVE[id]} onClick={() => (pinned ? pinLang(id) : setChoice(id))}>{id === 'en' ? 'EN' : NATIVE[id]}</button>
     })}
   </div>
 }

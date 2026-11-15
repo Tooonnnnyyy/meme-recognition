@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { susGrade, susScore } from '../src/research/questionnaire.js'
 import { completion, meanInterval, tCritical, timeInterval } from '../src/research/stats.js'
-import { buildReport, reportCsv, reportMarkdown, reviewCount, sessionKey } from '../src/research/studyReport.js'
+import { describeSignal } from '../src/research/signals.js'
+import { buildReport, issueTitle, reportCsv, reportMarkdown, reportTitle, reviewCount, sessionKey } from '../src/research/studyReport.js'
 
 test('SUS scores follow Brooke\'s rule and the Sauro–Lewis grades', () => {
   assert.equal(susScore([5, 1, 5, 1, 5, 1, 5, 1, 5, 1]), 100)
@@ -194,4 +195,42 @@ test('t critical values continue past 30 degrees of freedom, and equal values gi
   assert.equal(equal.low, null)
   assert.equal(equal.noSpread, true)
   assert.equal(timeInterval([30000, 30000]).noSpread, true)
+})
+
+test('questionnaires answered in more than one language are flagged; unknown languages are not', () => {
+  const answered = (participant, questionnaireLangs) => raw(participant, SITE, oneTask('T1', 'success', 1000, { seq: 6 }), [], questionnaireLangs ? { questionnaireLangs } : {})
+  const mixed = buildReport([answered('P1', ['en']), answered('P2', ['zh'])])
+  assert.deepEqual(mixed.languages, ['en', 'zh'])
+  assert.equal(mixed.mixedLanguages, true)
+  assert.match(reportMarkdown(mixed), /^> The questionnaires were answered in more than one language \(English, 中文\)\./m)
+  assert.match(reportMarkdown(mixed, 'zh'), /^> 问卷以不止一种语言作答（English、中文）。/m)
+  // A session from before languages were recorded counts as unknown, not as another language.
+  const single = buildReport([answered('P1', ['zh']), answered('P2', null)])
+  assert.deepEqual(single.languages, ['zh'])
+  assert.equal(single.mixedLanguages, false)
+  assert.doesNotMatch(reportMarkdown(single), /more than one language/)
+})
+
+test('the Markdown export and problem titles follow the reader\'s language; the CSV stays English', () => {
+  const session = raw('P1', SITE, oneTask('T2', 'success', 60000), [{ type: 'navigate', t: 100, taskId: 'T2', page: 'returns' }, siteClick(5000, 'returns', 'button#submit-return', 'Submit return')])
+  const report = buildReport([session])
+  const [issue] = report.issues
+  assert.equal(issueTitle(issue), 'No response to a click on “Submit return” on returns')
+  assert.equal(issueTitle(issue, 'zh'), '在 returns 页面，对“Submit return”的点击无响应')
+  const markdown = reportMarkdown(report, 'zh')
+  assert.match(markdown, /^# Returns flow：可用性测试报告$/m)
+  assert.match(markdown, /^1位参与者：P1。$/m)
+  assert.ok(markdown.includes('| T2 | 在 returns 页面，对“Submit return”的点击无响应 | 1/1 |'))
+  assert.doesNotMatch(markdown, /usability test report|Participants affected/)
+  assert.equal(reportMarkdown(report, 'en'), reportMarkdown(report))
+  assert.match(reportCsv(report), /^problem,T2,No response to a click on “Submit return” on returns,/m)
+  // The evidence for a signal, as the review screen lists it.
+  const signal = { kind: 'dead-click', count: 2, detail: { label: 'Submit return' } }
+  assert.equal(describeSignal(signal), 'No response to a click ×2 on “Submit return”')
+  assert.equal(describeSignal(signal, 'zh'), '点击“Submit return”无响应 ×2')
+  assert.equal(describeSignal({ kind: 'idle', count: 1, detail: { seconds: 12 } }, 'zh'), '停顿12秒，没有任何输入')
+  // A study with no title gets a stand-in in the reader's language.
+  const untitled = buildReport([{ ...session, study: { id: 'x' } }])
+  assert.equal(reportTitle(untitled), 'Study')
+  assert.equal(reportTitle(untitled, 'zh'), '研究')
 })

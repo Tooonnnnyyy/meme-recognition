@@ -1,4 +1,5 @@
 import { aoiHit, boxGap, detectFixations } from './fixations.js'
+import { translate } from '../i18n/index.js'
 
 // Friction signals and "candidate moments" computed from a recorded session.
 // Everything here is a pure function of the session file, so a session can be
@@ -275,21 +276,24 @@ export function findCandidates(signals, { padMs = 2000, pairWindowMs = 5000 } = 
     .sort((a, b) => a.start - b.start)
 }
 
-// Plain-language evidence for one signal, as shown to the researcher.
-// Where a click landed: the control's label, else its area of interest.
-const clickPlace = detail => detail.label ? ` on “${detail.label}”` : detail.aoi ? ` in the ${detail.aoi} area` : ''
+// Plain-language evidence for one signal, as shown to the researcher, in
+// lang (English by default). A click is placed by the control's label, else
+// its area of interest.
+const clickKey = (base, detail) => (detail.label ? `${base}On` : detail.aoi ? `${base}In` : base)
 
-export function describeSignal(signal) {
-  const times = signal.count > 1 ? ` ×${signal.count}` : ''
+export function describeSignal(signal, lang = 'en') {
+  const say = (key, vars) => translate(lang, `report.signal.${key}`, vars)
+  const detail = signal.detail || {}
+  const place = { label: detail.label, aoi: detail.aoi }
   switch (signal.kind) {
-    case 'dead-click': return `No response to a click${times}${clickPlace(signal.detail)}`
-    case 'rage-click': return `${signal.count} rapid clicks${clickPlace(signal.detail)}`
-    case 'page-loop': return `Returned to ${signal.detail.page} ${signal.count - 1} times`
-    case 'timeout': return 'Ran out of time on the task'
-    case 'idle': return `No input for ${signal.detail.seconds} s`
-    case 'visual-search': return `Looked across ${signal.detail.areas} areas (${signal.count} jumps) without clicking`
-    case 'brow-lowered': return `Brow lowered for ${signal.detail.seconds} s`
-    case 'lean-in': return `Leaned towards the screen for ${signal.detail.seconds} s`
+    case 'dead-click': return say(clickKey('deadClick', detail), { ...place, times: signal.count > 1 ? ` ×${signal.count}` : '' })
+    case 'rage-click': return say(clickKey('rageClick', detail), { ...place, count: signal.count })
+    case 'page-loop': return say('pageLoop', { page: detail.page, times: signal.count - 1 })
+    case 'timeout': return say('timeout')
+    case 'idle': return say('idle', { seconds: detail.seconds })
+    case 'visual-search': return say('visualSearch', { areas: detail.areas, count: signal.count })
+    case 'brow-lowered': return say('browLowered', { seconds: detail.seconds })
+    case 'lean-in': return say('leanIn', { seconds: detail.seconds })
     default: return signal.kind
   }
 }

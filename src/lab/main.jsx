@@ -27,10 +27,10 @@ function App() {
     return () => removeEventListener('hashchange', onHash)
   }, [])
   const { view, id, extra } = route
-  if (view === 'study' && id) return <StudyPage key={id} id={id} tab={extra || 'plan'} />
-  if (view === 'run' && id) return <Console key={`${id}/${extra}`} id={id} slot={extra} />
-  if (view === 'review' && id) return <LabReview key={`${id}/${extra}`} id={id} sessionKey={extra} />
-  if (view === 'report' && id) return <LabReport key={id} id={id} />
+  if (view === 'study' && id) { return <StudyPage key={id} id={id} tab={extra || 'plan'} /> }
+  if (view === 'run' && id) { return <Console key={`${id}/${extra}`} id={id} slot={extra} /> }
+  if (view === 'review' && id) { return <LabReview key={`${id}/${extra}`} id={id} sessionKey={extra} /> }
+  if (view === 'report' && id) { return <LabReport key={id} id={id} /> }
   return <Studies />
 }
 

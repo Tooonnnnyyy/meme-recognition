@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { currentLang } from '../i18n/index.js'
+import { NATIVE, currentLang, pinLang, pinnedLang } from '../i18n/index.js'
+import { Rich, useT } from '../i18n/react.jsx'
 import { LabHeader, studyHref } from './LabNav'
 import { saveSession, sessionKeyOf, sessionsOf, workspace } from './workspace'
 import { OUTCOMES, participantId, taskOrder, toRuntimeStudy } from '../research/studyModel'
@@ -14,12 +15,24 @@ const clock = ms => `${String(Math.floor(ms / 60000)).padStart(2, '0')}:${String
 const NOTE_KEYS = { n: 'note', p: 'problem', q: 'quote', a: 'assist', e: 'error' }
 const OUTCOME_KEYS = { 1: 'success', 2: 'partial', 3: 'failed', 4: 'skipped' }
 const typing = target => /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName) || target?.isContentEditable
+const kbd = text => <kbd>{text}</kbd>
+// From Begin session to the end, the session screens (and the moderator's
+// panel, which shares the page) show the study's language, as participants
+// see it everywhere else. The questionnaires let the participant switch
+// language for this visit; afterwards the console goes back to the
+// moderator's own choice.
+const releaseLang = () => { if (pinnedLang()) pinLang(null) }
+// Whole sentences, joined the way each language joins them.
+function sentences(lang, parts) {
+  return parts.filter(Boolean).join(lang === 'zh' ? '' : ' ')
+}
 
 // A moderated session on this computer. The participant sees the task (and
 // the embedded prototype, if any); the moderator's panel on the right holds
 // the success criteria, outcome buttons and quick notes. Everything is saved
 // to the workspace as it happens, so a closed tab loses at most one note.
 export function Console({ id, slot }) {
+  const t = useT()
   const pilot = slot === 'pilot'
   const index = pilot ? 0 : Math.max(0, Number(slot) || 0)
   const [study, setStudy] = useState(null)
@@ -48,12 +61,15 @@ export function Console({ id, slot }) {
       setStudy(found)
     })()
   }, [id, slot])
+  useEffect(() => releaseLang, [])
 
   const order = study ? taskOrder(study, index) : []
   const runtime = study ? toRuntimeStudy(study, order) : null
   const task = runtime?.tasks[taskIndex]
-  const definition = study?.tasks.find(item => item.id === task?.id)
+  const definition = study ? study.tasks.find(item => item.id === task?.id) : undefined
   const embedded = runtime && runtime.kind !== 'observed'
+  const outcomeLabel = outcome => (OUTCOMES[outcome] ? t(`study.outcome.${outcome}`) : outcome)
+  const kindLabel = kind => (NOTE_KINDS[kind] ? t(`study.note.${kind}`) : kind)
 
   const persist = () => recorderRef.current && saveSession(id, recorderRef.current.session)
 
@@ -62,6 +78,7 @@ export function Console({ id, slot }) {
     Object.assign(recorder.session, { mode: 'moderated', pilot, consentConfirmedAt: new Date().toISOString(), taskOrder: order, notes: [] })
     recorderRef.current = recorder
     persist()
+    pinLang(runtime.lang)
     setPhase('intro')
   }
 
@@ -118,6 +135,7 @@ export function Console({ id, slot }) {
     recorder.stop()
     recorder.session.finishedAt = new Date().toISOString()
     persist()
+    releaseLang()
     setPhase('done')
   }
 
@@ -144,6 +162,7 @@ export function Console({ id, slot }) {
   }, [phase])
 
   // Warn before closing the tab mid-session (it is saved, but unfinished).
+  // The browser shows its own wording, in its own language.
   useEffect(() => {
     if (['setup', 'done'].includes(phase)) return undefined
     const warn = event => { event.preventDefault(); event.returnValue = '' }
@@ -177,8 +196,9 @@ export function Console({ id, slot }) {
     return () => removeEventListener('keydown', onKey)
   })
 
-  if (study === false) return <div className="screen"><LabHeader /><main className="center-note"><h2>This study is not in this browser</h2><a className="btn primary" href="#/">Back to studies</a></main></div>
-  if (!study) return <div className="screen"><LabHeader /><main className="center-note"><p className="muted">Loading…</p></main></div>
+  if (!study) return <div className="screen"><LabHeader /><main className="center-note">{study === false
+    ? <><h2>{t('console.missing.title')}</h2><a className="btn primary" href="#/">{t('console.missing.back')}</a></>
+    : <p className="muted">{t('console.loading')}</p>}</main></div>
 
   if (phase === 'post') {
     const Form = study.questionnaire.post === 'sus' ? SusForm : UmuxLiteForm
@@ -192,18 +212,23 @@ export function Console({ id, slot }) {
   if (phase === 'setup') return <div className="screen">
     <LabHeader study={study} current="run" />
     <main className="center-note console-setup">
-      <span className="kicker">{pilot ? 'Pilot session · kept out of the report' : 'Moderated session'}</span>
-      <h2>Session {code}</h2>
-      <p className="muted">{runtime.tasks.length} tasks in this order: {order.join(' → ')}.{study.questionnaire.seq ? ' An ease rating after each task.' : ''}{study.questionnaire.post !== 'none' ? ` ${study.questionnaire.post === 'sus' ? 'SUS' : 'UMUX-Lite'} at the end.` : ''}</p>
+      <span className="kicker">{pilot ? t('console.setup.kickerPilot') : t('console.setup.kicker')}</span>
+      <h2>{t('console.session', { code })}</h2>
+      <p className="muted">{sentences(t.lang, [
+        t('console.setup.order', { count: runtime.tasks.length, order: order.join(' → ') }),
+        study.questionnaire.seq && t('console.setup.seq'),
+        study.questionnaire.post !== 'none' && t('console.setup.post', { scale: study.questionnaire.post === 'sus' ? 'SUS' : 'UMUX-Lite' }),
+      ])}</p>
+      {runtime.lang !== t.lang && <p className="muted">{t('console.setup.langMismatch', { lang: NATIVE[runtime.lang] })}</p>}
       <ol className="checklist">
-        <li>Welcome the participant and explain that you are testing the design, not them.</li>
-        <li>Go through the consent form{study.consent.researcher ? '' : ' (generate it under Documents)'} and answer questions.</li>
-        <li>Ask them to think aloud. Close other tabs and notifications.</li>
+        <li>{t('console.setup.welcome')}</li>
+        <li>{study.consent.researcher ? t('console.setup.consent') : t('console.setup.consentGenerate')}</li>
+        <li>{t('console.setup.thinkAloud')}</li>
       </ol>
-      <label className="check" htmlFor="consented"><input id="consented" type="checkbox" checked={consented} onChange={event => setConsented(event.target.checked)} />The participant has given consent (signed or verbal, as your ethics approval says)</label>
+      <label className="check" htmlFor="consented"><input id="consented" type="checkbox" checked={consented} onChange={event => setConsented(event.target.checked)} />{t('console.setup.consented')}</label>
       <div className="actions">
-        <button className="btn primary" disabled={!consented} onClick={begin}>Begin session</button>
-        <a className="btn ghost" href={studyHref('study', study.id, 'run')}>Back</a>
+        <button className="btn primary" disabled={!consented} onClick={begin}>{t('console.setup.begin')}</button>
+        <a className="btn ghost" href={studyHref('study', study.id, 'run')}>{t('console.setup.back')}</a>
       </div>
     </main>
   </div>
@@ -214,14 +239,18 @@ export function Console({ id, slot }) {
     return <div className="screen">
       <LabHeader study={study} current="run" />
       <main className="center-note">
-        <span className="kicker">Saved in this browser</span>
-        <h2>Session {code} is complete</h2>
-        <ul className="outcome-summary">{session.tasks.map(item => <li key={item.id}><b className="mono">{item.id}</b> {OUTCOMES[item.outcome] || item.outcome} · {clock((item.end ?? item.start) - (item.ready ?? item.start))}{item.seq ? ` · ease ${item.seq}/7` : ''}</li>)}</ul>
-        <p className="muted">{session.notes?.length || 0} notes{session.sus ? ` · SUS ${session.sus.score}` : ''}{session.umuxLite ? ` · UMUX-Lite ${session.umuxLite.raw}` : ''}.</p>
+        <span className="kicker">{t('console.done.kicker')}</span>
+        <h2>{t('console.done.title', { code })}</h2>
+        <ul className="outcome-summary">{session.tasks.map(item => <li key={item.id}><b className="mono">{item.id}</b> {outcomeLabel(item.outcome)} · {clock((item.end ?? item.start) - (item.ready ?? item.start))}{item.seq ? ` · ${t('console.done.ease', { value: item.seq })}` : ''}</li>)}</ul>
+        <p className="muted">{[
+          t('console.done.notes', { count: session.notes?.length || 0 }),
+          session.sus && `SUS ${session.sus.score}`,
+          session.umuxLite && `UMUX-Lite ${session.umuxLite.raw}`,
+        ].filter(Boolean).join(' · ')}{t('console.fullStop')}</p>
         <div className="actions">
-          {next !== null && next < study.plannedParticipants && <a className="btn primary" href={studyHref('run', study.id, String(next))}>Next participant ({participantId(next)})</a>}
-          <a className="btn secondary" href={studyHref('review', study.id, sessionKeyOf(study.id, session))}>Review this session</a>
-          <a className="btn ghost" href={studyHref('study', study.id, 'results')}>All results</a>
+          {next !== null && next < study.plannedParticipants && <a className="btn primary" href={studyHref('run', study.id, String(next))}>{t('console.done.next', { code: participantId(next) })}</a>}
+          <a className="btn secondary" href={studyHref('review', study.id, sessionKeyOf(study.id, session))}>{t('console.done.review')}</a>
+          <a className="btn ghost" href={studyHref('study', study.id, 'results')}>{t('console.done.results')}</a>
         </div>
       </main>
     </div>
@@ -229,65 +258,66 @@ export function Console({ id, slot }) {
 
   const overTime = phase === 'running' && elapsed > task.limitSec * 1000
   const taskNotes = notes.filter(note => note.taskId === task?.id)
+  const position = { n: taskIndex + 1, total: runtime.tasks.length }
   return <div className="screen console">
     <header className="topbar console-bar">
-      <div className="brand"><span className="mark">◎</span><div><strong>{study.title}</strong><small>{code}{pilot ? ' · pilot' : ''} · task {taskIndex + 1} of {runtime.tasks.length}</small></div></div>
+      <div className="brand"><span className="mark">◎</span><div><strong>{study.title}</strong><small>{code}{pilot ? ` · ${t('console.bar.pilot')}` : ''} · {t('console.bar.task', position)}</small></div></div>
       <div className="actions">
         <span className={`timer mono ${overTime ? 'over' : ''}`} aria-live="off">{phase === 'running' ? clock(elapsed) : '00:00'}</span>
-        {overTime && <span className="chip strong">OVER {Math.round(task.limitSec / 60)} MIN</span>}
+        {overTime && <span className="chip strong">{t('console.over', { minutes: Math.round(task.limitSec / 60) })}</span>}
         {confirmEnd
-          ? <><button className="btn danger small-btn" onClick={finish}>End session now</button><button className="btn ghost small-btn" autoFocus onClick={() => setConfirmEnd(false)}>Cancel</button></>
-          : <button className="btn ghost small-btn" onClick={() => setConfirmEnd(true)}>End session</button>}
+          ? <><button className="btn danger small-btn" onClick={finish}>{t('console.endNow')}</button><button className="btn ghost small-btn" autoFocus onClick={() => setConfirmEnd(false)}>{t('console.cancel')}</button></>
+          : <button className="btn ghost small-btn" onClick={() => setConfirmEnd(true)}>{t('console.end')}</button>}
       </div>
     </header>
     <div className="console-body">
       <main className="console-stage">
-        {embedded && <iframe ref={frameRef} className={phase === 'running' ? '' : 'is-waiting'} title="Prototype being tested" src="about:blank" onLoad={loaded} allow="fullscreen" />}
+        {embedded && <iframe ref={frameRef} className={phase === 'running' ? '' : 'is-waiting'} title={t('console.stage.frameTitle')} src="about:blank" onLoad={loaded} allow="fullscreen" />}
         {phase === 'intro' && <div className="stage-card panel">
-          {lastOutcome && <span className="chip live">PREVIOUS · {(OUTCOMES[lastOutcome] || lastOutcome).toUpperCase()}</span>}
-          <span className="kicker">Task {taskIndex + 1} of {runtime.tasks.length}</span>
+          {lastOutcome && <span className="chip live">{t('console.stage.previous', { outcome: outcomeLabel(lastOutcome).toUpperCase() })}</span>}
+          <span className="kicker">{t('console.stage.task', position)}</span>
           <h2 className="task-big">{task.prompt}</h2>
-          <button className="btn primary" onClick={start}>Start task <kbd>Enter</kbd></button>
+          <button className="btn primary" onClick={start}><Rich text={t('console.stage.start')} tags={{ kbd }} /></button>
         </div>}
         {phase === 'running' && !embedded && <div className="stage-card panel">
-          <span className="kicker">Task {taskIndex + 1} of {runtime.tasks.length}</span>
+          <span className="kicker">{t('console.stage.task', position)}</span>
           <h2 className="task-big">{task.prompt}</h2>
-          <p className="muted">Take your time and think aloud. Tell the moderator when you are done.</p>
+          <p className="muted">{t('console.stage.thinkAloud')}</p>
         </div>}
-        {phase === 'running' && embedded && <div className="task-ribbon"><b>Task {taskIndex + 1}:</b> {task.prompt}</div>}
-        {phase === 'rating' && <div className="stage-card stage-plain"><SeqRating taskNumber={taskIndex + 1} outcome={OUTCOMES[lastOutcome] || lastOutcome} onDone={rated} /></div>}
+        {phase === 'running' && embedded && <div className="task-ribbon"><Rich text={t('console.stage.ribbon', position)} tags={{ b: text => <b>{text}</b>, prompt: () => task.prompt }} /></div>}
+        {phase === 'rating' && <div className="stage-card stage-plain"><SeqRating taskNumber={taskIndex + 1} outcome={outcomeLabel(lastOutcome)} onDone={rated} /></div>}
       </main>
-      <aside className="console-panel" aria-label="Moderator panel">
+      <aside className="console-panel" aria-label={t('console.panel.label')}>
         <section>
-          <span className="kicker">Success looks like</span>
-          <p>{definition?.success || <span className="muted">Not written down; add it in Plan.</span>}</p>
+          <span className="kicker">{t('console.panel.success')}</span>
+          <p>{definition?.success || <span className="muted">{t('console.panel.noSuccess')}</span>}</p>
         </section>
         <section>
-          <span className="kicker">Outcome</span>
+          <span className="kicker">{t('console.panel.outcome')}</span>
           <div className="outcome-buttons">
-            {Object.entries(OUTCOME_KEYS).map(([key, outcome]) => <button key={key} className={`btn small-btn ${outcome === 'success' ? 'primary' : 'ghost'}`} disabled={phase !== 'running'} onClick={() => endTask(outcome)}><kbd>{key}</kbd> {OUTCOMES[outcome]}</button>)}
+            {Object.entries(OUTCOME_KEYS).map(([key, outcome]) => <button key={key} className={`btn small-btn ${outcome === 'success' ? 'primary' : 'ghost'}`} disabled={phase !== 'running'} onClick={() => endTask(outcome)}><kbd>{key}</kbd> {outcomeLabel(outcome)}</button>)}
           </div>
         </section>
         <section>
-          <span className="kicker">Notes</span>
+          <span className="kicker">{t('console.panel.notes')}</span>
           <form className="note-form" onSubmit={addNote}>
-            <div className="note-kinds" role="radiogroup" aria-label="Note type">
-              {Object.entries(NOTE_KINDS).map(([kind, label]) => <button key={kind} type="button" role="radio" aria-checked={noteKind === kind} className={`kind ${noteKind === kind ? 'on' : ''}`} onClick={() => { setNoteKind(kind); noteRef.current?.focus() }}><kbd>{kind[0].toUpperCase()}</kbd> {label}</button>)}
+            <div className="note-kinds" role="radiogroup" aria-label={t('console.panel.noteType')}>
+              {Object.keys(NOTE_KINDS).map(kind => <button key={kind} type="button" role="radio" aria-checked={noteKind === kind} className={`kind ${noteKind === kind ? 'on' : ''}`} onClick={() => { setNoteKind(kind); noteRef.current?.focus() }}><kbd>{kind[0].toUpperCase()}</kbd> {kindLabel(kind)}</button>)}
             </div>
-            <input ref={noteRef} aria-label={`${NOTE_KINDS[noteKind]} text`} value={noteText} disabled={phase === 'setup'} placeholder={noteKind === 'quote' ? 'What they said, word for word' : 'What happened  #tag groups it'} onChange={event => setNoteText(event.target.value)} />
-            <button className="btn secondary small-btn" type="submit" disabled={!noteText.trim()}>Add <kbd>Enter</kbd></button>
+            <input ref={noteRef} aria-label={t('console.panel.noteText', { kind: kindLabel(noteKind) })} value={noteText} disabled={phase === 'setup'} placeholder={noteKind === 'quote' ? t('console.panel.quotePlaceholder') : t('console.panel.notePlaceholder')} onChange={event => setNoteText(event.target.value)} />
+            <button className="btn secondary small-btn" type="submit" disabled={!noteText.trim()}><Rich text={t('console.panel.add')} tags={{ kbd }} /></button>
           </form>
           <ul className="console-notes">
             {taskNotes.slice().reverse().map((note, at) => <li key={`${note.t}-${at}`} className={`note note-${note.kind}`}>
               <span className="mono small">{clock(note.t - (recorderRef.current.session.tasks.find(item => item.id === note.taskId)?.start ?? 0))}</span>
-              <span className="chip">{NOTE_KINDS[note.kind].toUpperCase()}</span>
+              <span className="chip">{kindLabel(note.kind).toUpperCase()}</span>
               <span>{note.kind === 'quote' ? `“${note.text}”` : note.text}</span>
               {note.tags.map(tag => <span key={tag} className="tag">#{tag}</span>)}
-              <button className="chip-x" aria-label="Delete note" onClick={() => removeNote(note)}>×</button>
+              <button className="chip-x" aria-label={t('console.panel.deleteNote')} onClick={() => removeNote(note)}>×</button>
             </li>)}
           </ul>
         </section>
-        <p className="muted small hotkeys">Keys: <kbd>N</kbd> note <kbd>P</kbd> problem <kbd>Q</kbd> quote <kbd>A</kbd> assist <kbd>E</kbd> error · <kbd>1</kbd>–<kbd>4</kbd> outcome · <kbd>Esc</kbd> leaves the note field.</p>
+        <p className="muted small hotkeys"><Rich text={t('console.panel.hotkeys')} tags={{ kbd }} /></p>
       </aside>
     </div>
   </div>

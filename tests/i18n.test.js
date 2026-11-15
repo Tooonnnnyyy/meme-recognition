@@ -77,7 +77,8 @@ const stripComments = source => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(
 test('screens have no hard-coded English text', () => {
   const found = []
   for (const file of SCREENS) {
-    const source = stripComments(readFileSync(file, 'utf8'))
+    // Arrow functions are code, not the end of a tag.
+    const source = stripComments(readFileSync(file, 'utf8')).replace(/=>/g, '=')
     for (const match of source.matchAll(/>([^<>{}]+)</g)) {
       const text = match[1].trim()
       if (/[A-Za-z]{2,}/.test(text) && !ALLOWED.test(text)) found.push(`${file}: text ${JSON.stringify(text.slice(0, 60))}`)

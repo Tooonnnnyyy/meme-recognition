@@ -1,6 +1,7 @@
 import { calibrationSignals, classifyVision, createVisionGate } from './vision-rules'
 import { createFrameSmoother } from './smoothing'
 import { createCalibrationSession } from './calibration'
+import { TextError } from './i18n/index.js'
 
 // Absolute so the worker (whose own URL lives under /assets or /src) and the
 // MediaPipe loader resolve models and WASM from the same place as the page.
@@ -129,10 +130,10 @@ export async function createVisionEngine(video, { onFrame, onStatus, onAction = 
     const frame = smooth(result, timestamp)
     const visionFrame = { handResult: frame.hand, faceResult: frame.face, poseResult: frame.pose }
     if (calibration) {
-      const { progress, baseline: measured, error } = calibration.session.add(calibrationSignals(visionFrame), timestamp)
+      const { progress, baseline: measured, error, errorKey } = calibration.session.add(calibrationSignals(visionFrame), timestamp)
       calibration.onProgress(progress)
       if (measured) { baseline = measured; calibration.resolve(measured); calibration = null }
-      else if (error) { calibration.reject(new Error(error)); calibration = null }
+      else if (error) { calibration.reject(errorKey ? new TextError(errorKey) : new Error(error)); calibration = null }
     }
     if (lastFrameAt) stats.fps = average(stats.fps, 1000 / Math.max(timestamp - lastFrameAt, 1))
     lastFrameAt = timestamp
@@ -148,7 +149,7 @@ export async function createVisionEngine(video, { onFrame, onStatus, onAction = 
     if (stopped) return
     stopped = true
     cancelAnimationFrame(animationFrame)
-    calibration?.reject(new Error('Camera stopped'))
+    calibration?.reject(new TextError('common.vision.cameraStopped'))
     calibration = null
     backend.close()
   }
@@ -175,7 +176,7 @@ export async function createVisionEngine(video, { onFrame, onStatus, onAction = 
     }
     if (stopped) return
     stop()
-    onError(webglAvailable() ? error : new Error('WebGL is turned off in this browser, and MediaPipe needs it to read camera frames'))
+    onError(webglAvailable() ? error : new TextError('common.vision.webglOff'))
   }
 
   // One frame in flight at a time: a slow device processes fewer frames
@@ -199,9 +200,9 @@ export async function createVisionEngine(video, { onFrame, onStatus, onAction = 
     stop,
     analyzeImages: images => backend.analyzeImages(images),
     calibrate({ durationMs = 2000, onProgress = () => {} } = {}) {
-      calibration?.reject(new Error('Calibration restarted'))
+      calibration?.reject(new TextError('common.vision.calibrationRestarted'))
       return new Promise((resolve, reject) => {
-        if (stopped) { reject(new Error('Camera stopped')); return }
+        if (stopped) { reject(new TextError('common.vision.cameraStopped')); return }
         calibration = { session: createCalibrationSession({ durationMs }), onProgress, resolve, reject }
       })
     },

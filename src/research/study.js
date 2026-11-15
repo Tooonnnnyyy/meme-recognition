@@ -1,3 +1,5 @@
+import { isLang, translate } from '../i18n/index.js'
+
 // The demo study. To test your own prototype instead: put its pages in a
 // folder under public/ (same origin, so clicks and page changes can be
 // recorded), set siteBase to that folder, mark the areas you care about with
@@ -28,7 +30,7 @@ const DEMO_PROMPTS = {
   },
 }
 export const demoTasks = lang => DEMO_STUDY.tasks.map(task => ({ ...task, prompt: DEMO_PROMPTS[lang]?.[task.id] || task.prompt }))
-export const demoStudyIn = lang => ({ ...DEMO_STUDY, lang, tasks: demoTasks(lang) })
+export const demoStudyIn = lang => ({ ...DEMO_STUDY, lang, title: isLang(lang) ? translate(lang, 'study.demo.runtimeTitle') : DEMO_STUDY.title, tasks: demoTasks(lang) })
 
 // Gaze is used only when validation error is at most 3° (about 141 CSS px).
 export const GAZE_THRESHOLD_DEGREES = 3
