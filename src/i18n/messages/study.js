@@ -1,5 +1,48 @@
-// Messages for the study namespace, looked up as "study.key". Keep en and zh keys identical.
+// The study model: methods, sources, outcomes, note kinds, problems, and the
+// generated consent and data-management documents. Looked up as "study.key".
+// Keep en and zh keys identical.
 export default {
-  en: {},
-  zh: {},
+  en: {
+    // Labels shared by several screens (keys follow studyModel.js constants).
+    'method.moderated': 'Moderated, on this computer',
+    'method.unmoderated': 'Unmoderated, by link',
+    'source.none': 'Any prototype or app (observed)',
+    'source.figma': 'Figma prototype (embedded, recorded)',
+    'source.demo': 'Demo shop (embedded, recorded)',
+    'post.sus': 'SUS, 10 questions',
+    'post.umux-lite': 'UMUX-Lite, 2 questions',
+    'post.none': 'None',
+    'outcome.success': 'Success',
+    'outcome.partial': 'Partial success',
+    'outcome.failed': 'Failed or gave up',
+    'outcome.skipped': 'Skipped',
+    'note.note': 'Note',
+    'note.problem': 'Problem',
+    'note.quote': 'Quote',
+    'note.assist': 'Assist',
+    'note.error': 'Error',
+    'lang.label': 'Participant language',
+    'lang.hint': 'Consent, instructions and questionnaires are shown in this language. Write the tasks in it too.',
+  },
+  zh: {
+    'method.moderated': '有主持，在这台电脑上进行',
+    'method.unmoderated': '无主持，通过链接进行',
+    'source.none': '任意原型或应用（现场观察）',
+    'source.figma': 'Figma 原型（嵌入页面并自动记录）',
+    'source.demo': '演示商店（嵌入页面并自动记录）',
+    'post.sus': 'SUS，10 道题',
+    'post.umux-lite': 'UMUX-Lite，2 道题',
+    'post.none': '不使用',
+    'outcome.success': '成功',
+    'outcome.partial': '部分成功',
+    'outcome.failed': '失败或放弃',
+    'outcome.skipped': '跳过',
+    'note.note': '笔记',
+    'note.problem': '问题',
+    'note.quote': '原话',
+    'note.assist': '协助',
+    'note.error': '错误',
+    'lang.label': '参与者语言',
+    'lang.hint': '知情同意、操作说明和问卷都以这种语言显示。任务说明也请用这种语言撰写。',
+  },
 }
