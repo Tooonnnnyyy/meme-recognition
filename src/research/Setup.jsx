@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { ThemeToggle } from '../ThemeToggle'
+import { ViewToggles } from '../ThemeToggle'
 import { ResearcherNav } from './ResearcherNav'
 import { FIGMA_ORIGIN, embedUrl, figmaTranslator, parseFigmaLink } from './figma'
 import { checkStudy, studyLink } from './studyLink'
@@ -73,7 +73,7 @@ export function Setup() {
   }
 
   return <div className="screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study setup · Figma prototype</small></div></div><div className="actions"><ResearcherNav current="#setup" /><ThemeToggle /></div></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study setup · Figma prototype</small></div></div><div className="actions"><ResearcherNav current="#setup" /><ViewToggles /></div></header>
     <main className="setup">
       <section>
         <span className="kicker">Researcher</span>

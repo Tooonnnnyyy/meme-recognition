@@ -11,6 +11,7 @@ import { Setup } from './Setup'
 import { Report } from './Report'
 import { SusForm } from './Questionnaires'
 import { decodeStudy } from './studyLink'
+import { currentLang } from '../i18n/index.js'
 import './research.css'
 
 const participantCode = () => `P-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
@@ -202,7 +203,7 @@ function App() {
     {step === 'loading' && <div className="center-note"><span className="kicker">Starting the camera</span><h2>Loading on-device vision…</h2><p className="muted">{status || 'This takes a few seconds the first time.'}</p></div>}
     {step === 'calibrate' && <Calibration subscribe={subscribe} aspect={aspect} onDone={calibrated} />}
     {step === 'tasks' && <TaskRunner study={STUDY} recorder={recorderRef.current} gazeModel={gazeModel} subscribe={subscribe} aspect={aspect} cameraOn={cameraOn} cameraLost={cameraLost} notice={status} onFinish={finish} onStop={discard} />}
-    {step === 'sus' && <SusForm study={STUDY} participant={participant} onDone={answers => { recorderRef.current?.setSus(answers); setStep('finished') }} />}
+    {step === 'sus' && <SusForm study={STUDY} participant={participant} onDone={answers => { recorderRef.current?.setSus(answers, currentLang()); setStep('finished') }} />}
     {step === 'finished' && <Finished session={session} saved={saved} onSaved={() => setSaved(true)} onReview={() => { setReviewRequest(count => count + 1); location.hash = 'review' }} onDelete={discard} />}
     {step === 'deleted' && <div className="center-note"><span className="kicker">Session ended</span><h2>{saved ? 'Your data was deleted from this page' : 'Your data was deleted'}</h2><p className="muted">{saved ? 'The results file you downloaded is still in your downloads folder. Delete it there too if you do not want to keep it. You can close this tab.' : 'Nothing from this session was saved or sent. You can close this tab.'}</p></div>}
     {step === 'setup' && <Setup />}

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { describeSignal, detectSignals, findCandidates, sessionFixations, STRONG, MEDIUM, WEAK } from './signals'
-import { ThemeToggle } from '../ThemeToggle'
+import { ViewToggles } from '../ThemeToggle'
 import { ResearcherNav } from './ResearcherNav'
 import { embedUrl, isClientId, isFileKey, isNodeId } from './figma'
 import { isSeq, susGrade, susScore, umuxLiteScore } from './questionnaire'
@@ -342,7 +342,7 @@ export function Review({ initialSession, request = 0, hidden = false, onSave, na
   }
 
   // Mounted only when shown, so it picks up a theme chosen on another screen.
-  const toggle = hidden ? null : <ThemeToggle />
+  const toggle = hidden ? null : <ViewToggles />
   // The value is cleared so that choosing the same file again, after Cancel, still loads it.
   const picker = <label className="btn ghost file-button" htmlFor="session-file">{session ? 'Load another file' : 'Choose a session file'}<input ref={inputRef} id="session-file" type="file" accept="application/json,.json" onChange={event => { const [file] = event.target.files; event.target.value = ''; if (file) load(file) }} /></label>
 

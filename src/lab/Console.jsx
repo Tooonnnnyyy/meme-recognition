@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { currentLang } from '../i18n/index.js'
 import { LabHeader, studyHref } from './LabNav'
 import { saveSession, sessionKeyOf, sessionsOf, workspace } from './workspace'
 import { OUTCOMES, participantId, taskOrder, toRuntimeStudy } from '../research/studyModel'
@@ -106,7 +107,7 @@ export function Console({ id, slot }) {
     else finish()
   }
   const rated = value => {
-    recorderRef.current.rateTask(value)
+    recorderRef.current.rateTask(value, currentLang())
     persist()
     advance()
   }
@@ -182,8 +183,8 @@ export function Console({ id, slot }) {
   if (phase === 'post') {
     const Form = study.questionnaire.post === 'sus' ? SusForm : UmuxLiteForm
     return <Form study={runtime} participant={code} onDone={answers => {
-      if (study.questionnaire.post === 'sus') recorderRef.current.setSus(answers)
-      else recorderRef.current.setUmuxLite(answers)
+      if (study.questionnaire.post === 'sus') recorderRef.current.setSus(answers, currentLang())
+      else recorderRef.current.setUmuxLite(answers, currentLang())
       finish()
     }} />
   }

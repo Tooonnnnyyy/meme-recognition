@@ -3,7 +3,8 @@ import { gazeFeatures, predictGaze } from './gaze'
 import { faceSample } from './Calibration'
 import { embedUrl } from './figma'
 import { SeqRating } from './Questionnaires'
-import { ThemeToggle } from '../ThemeToggle'
+import { ViewToggles } from '../ThemeToggle'
+import { currentLang } from '../i18n/index.js'
 
 const BASE = import.meta.env.BASE_URL
 const clock = ms => `${String(Math.floor(ms / 60000)).padStart(2, '0')}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
@@ -49,7 +50,7 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
     setRating(true)
   }
   const rated = value => {
-    recorder.rateTask(value)
+    recorder.rateTask(value, currentLang())
     setRating(false)
     if (index + 1 >= study.tasks.length) onFinish()
     else setIndex(index + 1)
@@ -120,7 +121,7 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
       <span className="timer mono">{running ? clock(elapsed) : '00:00'}</span>
       <button className="btn ghost" disabled={!running} onClick={() => finishTask('skipped')}>Skip task</button>
       <button className="btn primary" disabled={!running} onClick={() => finishTask(task.successPage ? 'unverified' : 'self-reported')}>I’m done</button>
-      <ThemeToggle />
+      <ViewToggles pinnedLang />
     </div>
     <div className="site-frame">
       <iframe ref={frameRef} title={study.kind === 'figma' ? 'Prototype being tested' : 'Website being tested'} src="about:blank" onLoad={loaded} allow="fullscreen" />
@@ -159,7 +160,7 @@ export function Finished({ session, saved, onSaved, onReview, onDelete }) {
   const rated = session.tasks.some(task => task.seq != null) || session.sus
   const camera = [rated && 'your ratings and answers', session.gaze.length > 0 && 'estimates of where you looked', (session.face.length > 0 || session.baseline) && 'face movement as numbers', session.quality.accuracy && 'your calibration accuracy'].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' and $1')
   return <div className="screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study · {session.study.title} · participant {session.participant}</small></div></div><div className="actions"><span className="chip">CAMERA OFF</span><ThemeToggle /></div></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study · {session.study.title} · participant {session.participant}</small></div></div><div className="actions"><span className="chip">CAMERA OFF</span><ViewToggles pinnedLang /></div></header>
     <main className="finished">
       <span className="kicker">Step 3 of 3 · Finished</span>
       <h1>Thank you</h1>

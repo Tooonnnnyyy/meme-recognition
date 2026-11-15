@@ -6,7 +6,7 @@
    focus rings, darkened in light so it stays readable. */
 :root {
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
   /* task segments on the review timeline: pastel fills with dark text in both themes */
   --seg-ok: #a9d488; --seg-bad: #ff9f88; --seg-ink: #141414;
   --bg: #121212; --surface: #1b1b1a; --surface-2: #232321; --surface-3: #252523; --raised: #343431; --line: #393936;
@@ -229,6 +229,10 @@ h1, h2, h3 { margin: 0; letter-spacing: -.02em; text-wrap: balance; }
 .theme-toggle { display: inline-flex; flex: none; border: 1px solid var(--line); border-radius: 4px; }
 .theme-toggle button { background: transparent; border: 0; border-radius: 3px; padding: 6px 9px; font: 10px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 .theme-toggle button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); }
+.view-toggles { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+/* Chinese text: no negative tracking on headings, lighter tracking on small caps labels. */
+:lang(zh) h1, :lang(zh) h2, :lang(zh) h3, :lang(zh) .task-big { letter-spacing: 0; }
+:lang(zh) .kicker, :lang(zh) .chip, :lang(zh) .theme-toggle button { letter-spacing: .04em; }
 .theme-toggle button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
 
 @media (max-width: 900px) {

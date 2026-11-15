@@ -1,5 +1,6 @@
 import { isClientId, isFileKey, isNodeId } from './figma.js'
-import { DEMO_STUDY } from './study.js'
+import { DEMO_STUDY, demoTasks } from './study.js'
+import { isLang } from '../i18n/index.js'
 
 // The study definition the researcher workspace (lab.html) builds and keeps.
 // One format for every method: a moderated session run on the researcher's
@@ -26,6 +27,9 @@ export function newStudy(overrides = {}) {
     format: STUDY_FORMAT,
     id: createdId(),
     title: '',
+    // The language participants see: consent, instructions and questionnaires.
+    // Task wording is written by the researcher in this language.
+    lang: 'en',
     method: 'moderated',
     source: { kind: 'none' },
     tasks: [newTask(1)],
@@ -94,14 +98,15 @@ export const participantId = index => `P${String(index + 1).padStart(2, '0')}`
 
 // The copy the participant runtime (TaskRunner, recorder) works with.
 export function toRuntimeStudy(study, order = study.tasks.map(task => task.id)) {
+  const lang = isLang(study.lang) ? study.lang : 'en'
   const tasks = order.map(id => study.tasks.find(task => task.id === id)).filter(Boolean)
     .map(task => ({ id: task.id, prompt: task.prompt.trim(), start: task.start || null, successPage: task.successPage || null, limitSec: task.limitSec }))
   if (study.source.kind === 'figma') {
     const { figma } = study.source
-    return { id: study.id, kind: 'figma', title: study.title.trim(), figma: { fileKey: figma.fileKey, name: figma.name, startNodeId: figma.startNodeId || null, clientId: figma.clientId || '' }, tasks }
+    return { id: study.id, kind: 'figma', lang, title: study.title.trim(), figma: { fileKey: figma.fileKey, name: figma.name, startNodeId: figma.startNodeId || null, clientId: figma.clientId || '' }, tasks }
   }
-  if (study.source.kind === 'demo') return { id: study.id, title: study.title.trim(), siteBase: DEMO_STUDY.siteBase, tasks: tasks.map(task => ({ ...task, start: task.start || 'orders.html' })) }
-  return { id: study.id, kind: 'observed', title: study.title.trim(), tasks }
+  if (study.source.kind === 'demo') return { id: study.id, lang, title: study.title.trim(), siteBase: DEMO_STUDY.siteBase, tasks: tasks.map(task => ({ ...task, start: task.start || 'orders.html' })) }
+  return { id: study.id, kind: 'observed', lang, title: study.title.trim(), tasks }
 }
 
 const line = (label, value, fallback) => `- **${label}:** ${value && String(value).trim() ? String(value).trim() : `[${fallback}]`}`

@@ -1,4 +1,5 @@
 import { describeSignal, detectSignals, findCandidates, STRONG } from './signals.js'
+import { isLang } from '../i18n/index.js'
 import { completion, meanInterval, timeInterval } from './stats.js'
 import { isSeq, susGrade } from './questionnaire.js'
 
@@ -171,8 +172,14 @@ export function buildReport(allSessions, { includePilot = false } = {}) {
   // UMUX-Lite is reported on its own scale and as its SUS equivalent.
   const umuxRaw = meanInterval(sessions.map(session => session.umuxLite?.raw).filter(score => typeof score === 'number'), { min: 0, max: 100 })
   const umuxSus = meanInterval(sessions.map(session => session.umuxLite?.sus).filter(score => typeof score === 'number'), { min: 0, max: 100 })
+  // Language versions of a scale are not interchangeable without validation,
+  // so mixing them is flagged. Sessions from before this was recorded count
+  // as unknown, not as mixed.
+  const languages = [...new Set(sessions.flatMap(session => (Array.isArray(session.questionnaireLangs) ? session.questionnaireLangs.filter(isLang) : [])))].sort()
   return {
     participants: sessions.map(session => session.participant),
+    languages,
+    mixedLanguages: languages.length > 1,
     pilotsLeftOut: allSessions.length - sessions.length,
     observations: observationsOf(sessions),
     // Every quote, for the report's voice of the participant.

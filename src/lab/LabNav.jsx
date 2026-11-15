@@ -1,5 +1,5 @@
 import React from 'react'
-import { ThemeToggle } from '../ThemeToggle'
+import { ViewToggles } from '../ThemeToggle'
 
 // The workspace header: where you are, and the way back.
 const href = (...parts) => `#/${parts.map(encodeURIComponent).join('/')}`
@@ -12,7 +12,7 @@ export function LabHeader({ study, current, children }) {
       {STUDY_TABS.map(([tab, label]) => <a key={tab} href={href('study', study.id, tab)} aria-current={current === tab ? 'page' : undefined}>{label}</a>)}
       <a href={href('report', study.id)} aria-current={current === 'report' ? 'page' : undefined}>Report</a>
     </nav>}
-    <div className="actions">{children}<ThemeToggle /></div>
+    <div className="actions">{children}<ViewToggles /></div>
   </header>
 }
 

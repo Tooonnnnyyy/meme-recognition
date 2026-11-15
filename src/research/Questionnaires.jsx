@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ThemeToggle } from '../ThemeToggle'
+import { ViewToggles } from '../ThemeToggle'
 import { SEQ_ENDS, SEQ_QUESTION, SUS_SCALE, susItems, umuxLiteItems } from './questionnaire'
 
 // After each task: the Single Ease Question, 1–7. Optional.
@@ -32,7 +32,7 @@ export function SusForm({ study, participant, onDone }) {
   const [answers, setAnswers] = useState(Array(10).fill(null))
   const answered = answers.filter(Boolean).length
   return <div className="screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study · {study.title} · participant {participant}</small></div></div><div className="actions"><span className="chip">CAMERA OFF</span><ThemeToggle /></div></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study · {study.title} · participant {participant}</small></div></div><div className="actions"><span className="chip">CAMERA OFF</span><ViewToggles pinnedLang /></div></header>
     <main className="sus">
       <span className="kicker">Last step · 10 questions · optional</span>
       <h1>How was it overall?</h1>
@@ -64,7 +64,7 @@ export function UmuxLiteForm({ study, participant, onDone }) {
   const items = umuxLiteItems(study.kind === 'figma' ? 'prototype' : study.kind === 'observed' ? 'product' : 'website')
   const [answers, setAnswers] = useState([null, null])
   return <div className="screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study · {study.title} · participant {participant}</small></div></div><div className="actions"><ThemeToggle /></div></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study · {study.title} · participant {participant}</small></div></div><div className="actions"><ViewToggles pinnedLang /></div></header>
     <main className="sus">
       <span className="kicker">Last step · 2 questions · optional</span>
       <h1>How was it overall?</h1>

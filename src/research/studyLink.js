@@ -1,4 +1,5 @@
 import { isClientId, isFileKey, isNodeId } from './figma.js'
+import { isLang } from '../i18n/index.js'
 
 // A Figma study travels in the participant link (?study=...), so nothing has
 // to be hosted or stored: the researcher builds it on the setup screen.
@@ -40,6 +41,7 @@ const pick = study => ({
   // part of the id), so the report can tell them apart.
   id: `figma-${study.figma.fileKey}-${fingerprint(study)}`,
   kind: 'figma',
+  lang: isLang(study.lang) ? study.lang : 'en',
   title: study.title.trim(),
   figma: { fileKey: study.figma.fileKey, name: study.figma.name, startNodeId: study.figma.startNodeId || null, clientId: study.figma.clientId },
   tasks: study.tasks.map(task => ({ id: task.id, prompt: task.prompt.trim(), start: task.start || null, successPage: task.successPage || null, limitSec: task.limitSec })),

@@ -17,5 +17,18 @@ export const DEMO_STUDY = {
   ],
 }
 
+// The demo tasks in another interface language. The demo shop's pages are in
+// English, so the Chinese wording names the English items it points at, and
+// quotes the runtime's own button label (participant.done).
+const DEMO_PROMPTS = {
+  zh: {
+    T1: '打开你的登山靴（Hiking boots）订单的详情。',
+    T2: '为这双登山靴（Hiking boots）发起退货并提交。',
+    T3: '查一查退款要多久才能退回你的银行卡。知道答案后，点击“我完成了”。',
+  },
+}
+export const demoTasks = lang => DEMO_STUDY.tasks.map(task => ({ ...task, prompt: DEMO_PROMPTS[lang]?.[task.id] || task.prompt }))
+export const demoStudyIn = lang => ({ ...DEMO_STUDY, lang, tasks: demoTasks(lang) })
+
 // Gaze is used only when validation error is at most 3° (about 141 CSS px).
 export const GAZE_THRESHOLD_DEGREES = 3

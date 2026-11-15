@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react'
-import { ThemeToggle } from '../ThemeToggle'
+import { ViewToggles } from '../ThemeToggle'
 import { ResearcherNav } from './ResearcherNav'
 import { readSession } from './Review'
 import { buildReport, reportCsv, reportMarkdown, reviewCount, sessionKey } from './studyReport'
@@ -77,7 +77,7 @@ export function Report({ initialSessions = [], nav = <ResearcherNav current="#re
     <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study report{report ? ` · ${title || report.title}` : ''}</small></div></div>
       <div className="actions">{nav}{picker}
         {report && <><button className="btn secondary" onClick={() => save(reportMarkdown(report), `${slug}-report.md`, 'text/markdown')}>Export report (.md)</button><button className="btn ghost" onClick={() => save(reportCsv(report), `${slug}-report.csv`, 'text/csv')}>Export CSV</button></>}
-        <ThemeToggle /></div></header>
+        <ViewToggles /></div></header>
     {!report && <main className="center-note"><span className="kicker">Study report</span><h2>Combine participants' results</h2><p className="muted">Load the results files from every participant (you can choose several at once). Files reviewed on the review screen also bring their confirmed problems and severities. Nothing is uploaded.</p>{picker}{errors.map(error => <p key={error} className="warning" role="alert">{error}</p>)}</main>}
     {report && <main className="report">
       {errors.map(error => <p key={error} className="warning banner" role="alert">{error}</p>)}
