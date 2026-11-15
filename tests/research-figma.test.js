@@ -32,7 +32,7 @@ test('the embed opens at the frame, with the client id and without hotspot hints
 test('a study survives the participant link, and a bad one is refused', () => {
   const decoded = decodeStudy(encodeStudy(study))
   assert.match(decoded.id, /^figma-AbCdEf1234567890-[0-9a-z]+$/)
-  assert.deepEqual({ ...decoded, id: undefined, lang: undefined }, { ...study, id: undefined })
+  assert.deepEqual({ ...decoded, id: undefined, lang: undefined }, { ...study, id: undefined, lang: undefined })
   // The study's language travels too; a link without one means English.
   assert.equal(decoded.lang, 'en')
   assert.equal(decodeStudy(encodeStudy({ ...study, lang: 'zh' })).lang, 'zh')
