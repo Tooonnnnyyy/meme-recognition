@@ -3,6 +3,7 @@ import { LabHeader, studyHref } from './LabNav'
 import { exportPackage, importPackage, saveStudy, sessionsOf, workspace } from './workspace'
 import { demoStudy, newStudy } from '../research/studyModel'
 import { readSession } from '../research/Review'
+import { isFinished } from '../research/sessionStatus'
 import { errorText } from '../i18n/index.js'
 import { useT } from '../i18n/react.jsx'
 
@@ -13,12 +14,21 @@ export const download = (text, name, type = 'application/json') => {
 }
 export const slugOf = text => (text || 'study').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'study'
 
+// A status message: { key, vars, notes? } or { key, error } for a failed
+// import, whose error may carry the reason (cause) a session was refused.
+function messageText(t, { key, vars, notes = [], error }) {
+  // Chinese sentences follow each other without a space.
+  const space = t.lang === 'zh' ? '' : ' '
+  if (error) return t(key, { error: [error, error.cause].filter(item => item?.key).map(item => errorText(t, item)).join(space) || errorText(t, error) })
+  return [t(key, vars), ...notes.map(note => t(note.key, note.vars))].join(space)
+}
+
 // The workspace home: every study in this browser, with its progress.
 export function Studies() {
   const t = useT()
   const [rows, setRows] = useState(null)
   const [persistent, setPersistent] = useState(true)
-  // { key, vars } or { error }, shown in the current language.
+  // { key, vars, notes? } or { key, error }, shown in the current language.
   const [message, setMessage] = useState(null)
   const [confirming, setConfirming] = useState(null)
   const fileRef = useRef(null)
@@ -29,7 +39,8 @@ export function Studies() {
     const studies = (await store.listStudies()).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
     setRows(await Promise.all(studies.map(async study => {
       const sessions = await sessionsOf(study.id)
-      return { study, done: sessions.filter(session => !session.pilot).length, pilots: sessions.filter(session => session.pilot).length }
+      // Only sessions that reached their end count as done.
+      return { study, done: sessions.filter(session => !session.pilot && isFinished(session)).length, pilots: sessions.filter(session => session.pilot).length }
     })))
   }
   useEffect(() => { refresh() }, [])
@@ -47,11 +58,14 @@ export function Studies() {
   const importFile = async file => {
     try {
       const result = await importPackage(JSON.parse(await file.text()), readSession)
-      setMessage({ key: 'lab.studies.imported', vars: { studies: result.studies, sessions: result.sessions } })
-      refresh()
+      // What was kept from this computer or skipped is said after the counts.
+      const notes = [['keptStudies', result.keptStudies], ['keptSessions', result.keptSessions], ['skipped', result.skipped]].filter(([, count]) => count).map(([key, count]) => ({ key: `lab.studies.${key}`, vars: { count } }))
+      setMessage({ key: 'lab.studies.imported', vars: { studies: result.studies, sessions: result.sessions }, notes })
     } catch (problem) {
-      setMessage(problem instanceof SyntaxError ? { key: 'lab.studies.notJson' } : { error: problem })
+      // A package is checked before anything is written, so nothing changed.
+      setMessage(problem instanceof SyntaxError ? { key: 'lab.studies.notJson' } : { key: 'lab.studies.importFailed', error: problem })
     }
+    refresh()
   }
   const exportAll = async () => download(JSON.stringify(await exportPackage()), `usability-lab-backup-${new Date().toISOString().slice(0, 10)}.json`)
 
@@ -70,7 +84,7 @@ export function Studies() {
           <button className="btn secondary" onClick={() => create(demoStudy(t.lang))}>{t('lab.studies.demo')}</button>
         </div>
         {!persistent && <p className="warning" role="alert">{t('lab.studies.notPersistent')}</p>}
-        {message && <p className="muted small" role="status">{message.error ? errorText(t, message.error) : t(message.key, message.vars)}</p>}
+        {message && <p className="muted small" role="status">{messageText(t, message)}</p>}
       </section>
       {rows === null && <p className="muted">{t('lab.studies.loading')}</p>}
       {rows?.length === 0 && <p className="muted">{t('lab.studies.empty')}</p>}

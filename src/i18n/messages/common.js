@@ -13,6 +13,10 @@ export default {
     'vision.webglOff': 'WebGL is turned off in this browser, and MediaPipe needs it to read camera frames',
     'vision.cameraStopped': 'Camera stopped',
     'vision.calibrationRestarted': 'Calibration restarted',
+    // A time limit or duration, from durationText().
+    'duration.seconds': ({ count }) => (count === 1 ? '1 second' : `${count} seconds`),
+    'duration.minutes': ({ count }) => (count === 1 ? '1 minute' : `${count} minutes`),
+    'duration.minSec': '{min} min {sec} s',
   },
   zh: {
     language: '语言',
@@ -26,5 +30,8 @@ export default {
     'vision.webglOff': '这个浏览器已关闭 WebGL，而 MediaPipe 需要它来读取摄像头画面',
     'vision.cameraStopped': '摄像头已停止',
     'vision.calibrationRestarted': '校准已重新开始',
+    'duration.seconds': '{count}秒',
+    'duration.minutes': '{count}分钟',
+    'duration.minSec': '{min}分{sec}秒',
   },
 }

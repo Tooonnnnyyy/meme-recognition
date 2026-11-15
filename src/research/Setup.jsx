@@ -69,7 +69,9 @@ function EmbedTest({ study }) {
   </div>
 }
 
-export function Setup() {
+// main.jsx keeps Setup mounted while hidden: the switches are left out then
+// (they would keep a stale choice), and so is the Figma test embed.
+export function Setup({ hidden = false }) {
   const t = useT()
   // Participants see the study in its language, which starts as the
   // researcher's interface language.
@@ -87,7 +89,7 @@ export function Setup() {
   }
 
   return <div className="screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>{t('researcher.setup.subtitle')}</small></div></div><div className="actions"><ResearcherNav current="#setup" /><ViewToggles /></div></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>{t('researcher.setup.subtitle')}</small></div></div><div className="actions"><ResearcherNav current="#setup" />{hidden ? null : <ViewToggles />}</div></header>
     <main className="setup">
       <section>
         <span className="kicker">{t('researcher.setup.kicker')}</span>
@@ -107,8 +109,8 @@ export function Setup() {
         {form.tasks.map((task, index) => <fieldset key={index} className="panel setup-form">
           <legend>{t('researcher.setup.task', { number: index + 1 })}</legend>
           <label htmlFor={`task-${index}-prompt`}>{t('researcher.setup.prompt')}<textarea id={`task-${index}-prompt`} value={task.prompt} maxLength={300} rows={2} placeholder={t('researcher.setup.promptPlaceholder')} onChange={event => setTask(index, { prompt: event.target.value })} /></label>
-          <label htmlFor={`task-${index}-start`}>{t('researcher.setup.start')}<input id={`task-${index}-start`} value={task.start} placeholder={t('researcher.setup.startPlaceholder')} onChange={event => setTask(index, { start: event.target.value })} /></label>
-          <label htmlFor={`task-${index}-success`}>{t('researcher.setup.goal')}<input id={`task-${index}-success`} value={task.success} placeholder={t('researcher.setup.goalPlaceholder')} onChange={event => setTask(index, { success: event.target.value })} /></label>
+          <label htmlFor={`task-${index}-start`}>{t('researcher.setup.start')}<input id={`task-${index}-start`} value={task.start} placeholder={t('researcher.setup.startPlaceholder')} aria-describedby={`task-${index}-start-hint`} onChange={event => setTask(index, { start: event.target.value })} /><small id={`task-${index}-start-hint`} className="muted">{t('researcher.setup.startHint')}</small></label>
+          <label htmlFor={`task-${index}-success`}>{t('researcher.setup.goal')}<input id={`task-${index}-success`} value={task.success} placeholder={t('researcher.setup.goalPlaceholder')} aria-describedby={`task-${index}-success-hint`} onChange={event => setTask(index, { success: event.target.value })} /><small id={`task-${index}-success-hint`} className="muted">{t('researcher.setup.goalHint')}</small></label>
           <label htmlFor={`task-${index}-minutes`}>{t('researcher.setup.limit')}<input id={`task-${index}-minutes`} type="number" min="0.5" max="30" step="0.5" value={task.minutes} onChange={event => setTask(index, { minutes: event.target.value })} /></label>
           {form.tasks.length > 1 && <button className="btn ghost small-btn" onClick={() => set({ tasks: form.tasks.filter((_, at) => at !== index) })}>{t('researcher.setup.removeTask', { number: index + 1 })}</button>}
         </fieldset>)}
@@ -129,7 +131,7 @@ export function Setup() {
             </>}
           <p className="muted small">{t('researcher.setup.reviewHint')}</p>
         </div>
-        {testing && result.study && <EmbedTest study={result.study} />}
+        {testing && !hidden && result.study && <EmbedTest study={result.study} />}
       </section>
     </main>
   </div>

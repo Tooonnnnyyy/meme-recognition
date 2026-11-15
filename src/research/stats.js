@@ -31,6 +31,11 @@ export function completion(successes, n, z = 1.96) {
   return { rate: successes / n, low: Math.max(0, adjusted - margin), high: Math.min(1, adjusted + margin), successes, n }
 }
 
+// Whether a sample has no spread. Compared directly, not as sd() === 0: the
+// mean of equal values such as 58.3 is not always exactly 58.3 in floating
+// point, which leaves a tiny non-zero sd and a zero-width interval.
+const allEqual = values => values.every(value => value === values[0])
+
 // Mean with a t interval (rating scales such as SEQ and SUS). With one value
 // there is no interval.
 export function meanInterval(values, { min = -Infinity, max = Infinity } = {}) {
@@ -39,7 +44,7 @@ export function meanInterval(values, { min = -Infinity, max = Infinity } = {}) {
   if (values.length < 2) return { mean: average, low: null, high: null, n: 1 }
   // All values equal: the sample shows no spread, so no interval can be
   // estimated (a zero-width interval would claim false certainty).
-  if (sd(values) === 0) return { mean: average, low: null, high: null, n: values.length, noSpread: true }
+  if (allEqual(values)) return { mean: values[0], low: null, high: null, n: values.length, noSpread: true }
   const margin = tCritical(values.length - 1) * sd(values) / Math.sqrt(values.length)
   return { mean: average, low: Math.max(min, average - margin), high: Math.min(max, average + margin), n: values.length }
 }
@@ -52,7 +57,7 @@ export function timeInterval(milliseconds) {
   const logs = values.map(Math.log)
   const center = Math.exp(mean(logs))
   if (values.length < 2) return { geo: center, low: null, high: null, n: 1 }
-  if (sd(logs) === 0) return { geo: center, low: null, high: null, n: values.length, noSpread: true }
+  if (allEqual(values)) return { geo: values[0], low: null, high: null, n: values.length, noSpread: true }
   const margin = tCritical(values.length - 1) * sd(logs) / Math.sqrt(values.length)
   return { geo: center, low: Math.exp(mean(logs) - margin), high: Math.exp(mean(logs) + margin), n: values.length }
 }

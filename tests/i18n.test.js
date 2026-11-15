@@ -89,3 +89,22 @@ test('screens have no hard-coded English text', () => {
   }
   assert.deepEqual(found, [], `${found.length} hard-coded strings:\n${found.join('\n')}`)
 })
+
+test('durations read as words in both languages', async () => {
+  const { durationText } = await import('../src/i18n/index.js')
+  assert.equal(durationText('en', 30), '30 seconds')
+  assert.equal(durationText('en', 60), '1 minute')
+  assert.equal(durationText('en', 90), '1 min 30 s')
+  assert.equal(durationText('en', 300), '5 minutes')
+  assert.equal(durationText('zh', 30), '30秒')
+  assert.equal(durationText('zh', 90), '1分30秒')
+  assert.equal(durationText('zh', 300), '5分钟')
+})
+
+test('a browser language tag Intl rejects falls back to plain English', async () => {
+  const { localeFor } = await import('../src/i18n/index.js')
+  assert.equal(localeFor('en', ['en-US@posix']), 'en')
+  assert.equal(localeFor('en', ['en-US@posix', 'en-GB']), 'en-GB')
+  assert.equal(localeFor('en', ['en-CA']), 'en-CA')
+  assert.equal(localeFor('zh', ['en-CA']), 'zh-CN')
+})

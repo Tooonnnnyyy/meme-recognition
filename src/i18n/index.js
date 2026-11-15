@@ -126,11 +126,23 @@ export const errorText = (t, error) => (error && error.key ? t(error.key, error.
 // Numbers and dates in the reader's conventions. English keeps the
 // browser's own English locale (en-US, en-GB, en-CA…), as the pages did
 // before they had a language switch; Chinese uses zh-CN.
+// A tag Intl rejects (some browsers report 'en-US@posix') falls back to 'en'.
+const validLocale = tag => { try { return Intl.getCanonicalLocales(tag).length > 0 } catch { return false } }
 export function localeFor(lang, languages = browserLanguages()) {
   if (lang === 'zh') return 'zh-CN'
-  return languages.find(tag => /^en(?:-|$)/i.test(String(tag || ''))) || 'en'
+  return languages.find(tag => /^en(?:-|$)/i.test(String(tag || '')) && validLocale(tag)) || 'en'
 }
 export const formatNumber = (lang, value, options) => new Intl.NumberFormat(localeFor(lang), options).format(value)
+// A duration in seconds as words: "30 seconds", "5 minutes", "1 min 30 s".
+export function durationText(lang, seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0))
+  const min = Math.floor(total / 60)
+  const sec = total % 60
+  if (!min) return translate(lang, 'common.duration.seconds', { count: sec })
+  if (!sec) return translate(lang, 'common.duration.minutes', { count: min })
+  return translate(lang, 'common.duration.minSec', { min, sec })
+}
+
 // A missing or invalid date shows as an empty string instead of throwing.
 export function formatDate(lang, value, options = { dateStyle: 'medium' }) {
   const date = new Date(value)

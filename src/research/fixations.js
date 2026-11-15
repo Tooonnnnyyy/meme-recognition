@@ -79,5 +79,12 @@ export function aoiHit(point, aois, marginPx = 0) {
   return best ? { id: best.id, x: best.x, y: best.y, right: best.right, bottom: best.bottom } : null
 }
 
+// A page's areas as laid out at time t. The recorder measures them when the
+// page loads and again when the layout changes: an entry holds from `from`
+// until `to` (times of the change), and one without them holds throughout, as
+// in older files. So a panel opened or an error shown later is matched where
+// it is on screen, and an area hidden at the time is not matched at all.
+export const areasAt = (aois, t) => aois.filter(area => (area.from ?? -Infinity) <= t && t < (area.to ?? Infinity))
+
 // Distance between two boxes from aoiHit; 0 when they touch, overlap or nest.
 export const boxGap = (a, b) => Math.hypot(Math.max(a.x - b.right, 0, b.x - a.right), Math.max(a.y - b.bottom, 0, b.y - a.bottom))

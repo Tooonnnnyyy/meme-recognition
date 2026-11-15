@@ -13,6 +13,20 @@
 // Wang, Lei & Liu (2019); see docs/i18n.md. Each function takes the language
 // (default English); the constants are the English wording.
 import { translate } from '../i18n/index.js'
+import { runtimeQuestionnaire } from './studyLink.js'
+
+// What a runtime study asks besides the tasks, for the consent screen: ask
+// names the sentence (participant.consent.ask.<id>: seqSus, seqUmux, seq,
+// sus, umux, or null when nothing is asked) and answers names which answers
+// the results file keeps (participant.consent.answers.<id>: both, ratings,
+// final, or null).
+export function questionsAsked(study) {
+  const { seq, post } = runtimeQuestionnaire(study)
+  const end = { sus: 'Sus', 'umux-lite': 'Umux', none: '' }[post]
+  const ask = seq ? `seq${end}` : end ? end.toLowerCase() : null
+  const answers = seq && end ? 'both' : seq ? 'ratings' : end ? 'final' : null
+  return { ask, answers }
+}
 
 export const seqQuestion = (lang = 'en') => translate(lang, 'participant.seq.question')
 export const seqEnds = (lang = 'en') => [translate(lang, 'participant.seq.difficult'), translate(lang, 'participant.seq.easy')]
@@ -29,6 +43,10 @@ const productWord = (product, lang) => {
   const word = translate(lang, key)
   return word === key ? product : word
 }
+// The product word for a runtime study: a Figma study tests a prototype, the
+// demo shop a website, and an observed study (an app, a ProtoPie or Axure
+// prototype, paper…) a product.
+export const productFor = study => (study?.kind === 'figma' ? 'prototype' : study?.kind === 'observed' ? 'product' : 'website')
 export const susItems = (product, lang = 'en') => Array.from({ length: 10 }, (_, index) => translate(lang, `participant.sus.item${index + 1}`, { p: productWord(product, lang) }))
 
 // Odd items are positive (answer − 1), even items negative (5 − answer); the

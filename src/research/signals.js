@@ -1,4 +1,4 @@
-import { aoiHit, boxGap, detectFixations } from './fixations.js'
+import { aoiHit, areasAt, boxGap, detectFixations } from './fixations.js'
 import { translate } from '../i18n/index.js'
 
 // Friction signals and "candidate moments" computed from a recorded session.
@@ -10,16 +10,20 @@ import { translate } from '../i18n/index.js'
 //             controls: for a <label>, the selector of the field it labels
 //   mutation  { t, taskId }            the page changed (DOM mutation)
 //   change    { t, taskId, selector }  a form value changed (radio, checkbox, select, text)
-//   focus     { t, taskId, selector }  an element took focus
+//   focus     { t, taskId, selector, own? }  an element took focus; own: it
+//             holds the element just pressed, so the press itself focused it
 //   scroll    { t, taskId, page, x, y } scroll position, for replay
 //   navigate  { t, taskId, page }
-//   activity  { t, taskId }            mouse move, key press or scroll
+//   fragment  { t, taskId, page }      a link jumped to a place on the same page
+//   new-tab   { t, taskId, page }      a link opened a new tab or window
+//   activity  { t, taskId }            mouse move, key press, wheel or scroll
 // Throttled events (mutation, scroll, activity) carry `last`, the time of the
 // last event folded into them, when there was one.
 // gaze: [{ t, page, x, y, sx, sy }] in page document coordinates, with the
 // scroll offset at that moment
-// aois: { [page]: [{ id, rect, fixed? }] }, rects in document coordinates, or in
-// viewport coordinates when fixed
+// aois: { [page]: [{ id, rect, fixed?, from?, to? }] }, rects in document
+// coordinates, or in viewport coordinates when fixed; from and to: the times
+// the area was laid out there, when the layout changed (see areasAt)
 // face: [{ t, brow, scale }]; baseline: { brow, scale } from calibration, or
 // from the first task frames ({ ..., from: 'tasks' }) when calibration gave none
 
@@ -46,7 +50,9 @@ export const DEFAULTS = {
 
 const taskAt = (tasks, t) => tasks.find(task => t >= task.start && t <= (task.end ?? Infinity))?.id || null
 
-const RESPONSES = ['mutation', 'change', 'navigate', 'focus']
+// A jump within the page and a new tab are navigations too, kept apart from
+// 'navigate' so they do not count as page visits.
+const RESPONSES = ['mutation', 'change', 'navigate', 'focus', 'fragment', 'new-tab']
 
 // A Figma click says itself whether it hit a hotspot (target.handled); a
 // site click is judged by what happens after it.
@@ -71,14 +77,15 @@ function deadClicks(session, settings) {
     // The window for a response closes at the next click on another element,
     // since what follows may be that click's doing. Pressing the same element
     // again leaves it open: a dead element stays dead because it never
-    // answers. A button or link taking focus on its own press is no response.
+    // answers. A button or link taking focus on its own press is no response,
+    // nor is a container (a tabindex wrapper, a dialog) the press focused.
     let closes = click.t + settings.deadClickMs
     let answered = click.target?.handled === true
     const known = typeof click.target?.handled === 'boolean'
     for (let later = index + 1; !known && later < events.length && events[later].t < closes; later += 1) {
       const event = events[later]
       if (event.type === 'click' && !same(event)) { closes = event.t; break }
-      if (!RESPONSES.includes(event.type) || (event.type === 'focus' && event.selector === selector) || (event.type === 'change' && !ownChange(event))) continue
+      if (!RESPONSES.includes(event.type) || (event.type === 'focus' && (event.own || event.selector === selector)) || (event.type === 'change' && !ownChange(event))) continue
       answered = true
       break
     }
@@ -140,8 +147,9 @@ function timeouts(session) {
 function idlePeriods(session, settings) {
   const signals = []
   // A Figma frame does not pass on mouse movement or key presses, so quiet
-  // reading would look idle.
-  if (session.study?.kind === 'figma') return signals
+  // reading would look idle. An observed session watches a product outside
+  // the browser, so no input is seen at all.
+  if (['figma', 'observed'].includes(session.study?.kind)) return signals
   session.tasks.forEach(task => {
     // `last` is the end of a throttled burst of input, so idle starts there.
     const times = [task.start, ...session.events.filter(event => event.taskId === task.id && ['click', 'activity', 'navigate', 'focus', 'change', 'scroll'].includes(event.type)).flatMap(event => [event.t, event.last ?? event.t]), task.end ?? task.start]
@@ -220,7 +228,7 @@ export function sessionFixations(session, settings = DEFAULTS) {
   const margin = aoiMargin(session, settings)
   const pages = [...new Set(session.gaze.map(point => point.page))]
   return pages.flatMap(page => detectFixations(session.gaze.filter(point => point.page === page)).map(fixation => {
-    const hit = aoiHit(fixation, session.aois?.[page] || [], margin)
+    const hit = aoiHit(fixation, areasAt(session.aois?.[page] || [], fixation.start), margin)
     return { ...fixation, page, taskId: taskAt(session.tasks, fixation.start), aoi: hit?.id || null, box: hit && { x: hit.x, y: hit.y, right: hit.right, bottom: hit.bottom } }
   })).sort((a, b) => a.start - b.start)
 }

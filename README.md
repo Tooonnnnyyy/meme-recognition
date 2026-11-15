@@ -30,7 +30,7 @@ Works best in a desktop Chrome or Edge. Data is stored only in your own browser;
 
 1. Open [Usability Lab](https://tooonnnnyyy.github.io/meme-recognition/lab.html) and click **Try the demo study**.
 2. Go to **Run** → **Run a pilot**. Tick the consent box and click **Begin session**.
-3. Press **Enter** to start a task. While it runs, press **P** (problem), **Q** (quote), **N** (note), **A** (assist) or **E** (error), type the note and press **Enter**. Add `#tags` to group notes across participants.
+3. Press **Enter** to start a task. While it runs, press **P** (problem), **Q** (quote), **N** (note), **A** (assist) or **E** (error), type the note and press **Enter** to add it (**Esc** leaves the note field). Add `#tags` to group notes across participants.
 4. End the task with **1** success, **2** partial, **3** failed or gave up, **4** skipped. The participant rates how easy it was, and answers the SUS at the end.
 5. Open **Results** → **Review** to see the session, or **Report** for the study as a whole.
 
@@ -51,7 +51,7 @@ Works best in a desktop Chrome or Edge. Data is stored only in your own browser;
    - the **consent form** draft (TCPS 2 elements);
    - the **data management statement**.
 
-   Adapt both to your ethics board's template.
+   Adapt both to your ethics board's template, and fill in the parts in [brackets], such as the funder and any conflicts of interest.
 5. **Run.**
    - Start with a pilot on yourself; pilots stay out of the report.
    - Then run P01, P02… Every note and outcome is saved as it happens.
@@ -191,9 +191,13 @@ Meme lookalike turns each face into 43 blendshape scores (MediaPipe’s 52 minus
 
 ## Privacy
 
-Camera frames stay in the browser. This project has no backend, analytics, recording, upload, persistence, or cloud inference path. The calibration baseline and any **Use my face** references live in memory for the current page visit only. **Stop camera** stops the media tracks and closes the vision tasks.
+In Gesture Meme Studio, camera frames stay in the browser. It has no backend, analytics, recording, upload, persistence, or cloud inference path. The calibration baseline and any **Use my face** references live in memory for the current page visit only. **Stop camera** stops the media tracks and closes the vision tasks.
 
 Usability Copilot keeps the same rule: no video or face images are stored or sent. Its session file holds clicks with the text or label of what was clicked, which form controls were changed or focused, the pages visited, scrolling, the times of mouse and key activity (never which keys), task times and outcomes, calibration accuracy, and with the camera on, gaze estimates and two face numbers per frame (brow lowering and face size). What is typed into fields of the tested site is never stored (text a page shows inside a button, link or label is stored as that control's label), and emotions are never labelled. Nothing is uploaded: the participant decides whether to download and share the file, and can stop and delete everything at any time. Deleting clears the page; a file already downloaded has to be deleted from the downloads folder.
+
+Usability Lab keeps studies, sessions, notes and quotes in this browser's IndexedDB on the researcher's computer until you delete them; clearing the browser's site data deletes them too. Nothing is uploaded: **Export** and **Back up all** save a file you keep. In a Figma study the prototype is served by Figma: the participant's browser (or, in a moderated session, the researcher's) loads it from figma.com, so Figma receives that browser's IP address, browser details and what is done in the prototype. The generated consent form and data management statement say so.
+
+`research.html` and `lab.html` do not show inside a frame on another site, so no other page can lay itself over the consent screen or the workspace. Send participants the link itself.
 
 ## Repository security
 

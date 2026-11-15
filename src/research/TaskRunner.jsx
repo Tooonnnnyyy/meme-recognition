@@ -3,17 +3,41 @@ import { gazeFeatures, predictGaze } from './gaze'
 import { faceSample } from './Calibration'
 import { embedUrl } from './figma'
 import { SeqRating } from './Questionnaires'
+import { runtimeQuestionnaire } from './studyLink'
 import { ViewToggles } from '../ThemeToggle'
-import { currentLang } from '../i18n/index.js'
-import { useT } from '../i18n/react.jsx'
+import { currentLang, durationText } from '../i18n/index.js'
+import { Rich, useT } from '../i18n/react.jsx'
 
 const BASE = import.meta.env.BASE_URL
 const clock = ms => `${String(Math.floor(ms / 60000)).padStart(2, '0')}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
-// Outcome labels as the participant sees them (participant.outcome.<id>).
-const OUTCOMES = ['success', 'self-reported', 'unverified', 'skipped', 'timeout']
-const outcomeLabel = (t, outcome) => (OUTCOMES.includes(outcome) ? t(`participant.outcome.${outcome}`) : outcome)
-// "Stop and delete" stays armed this long, then goes back to its first state.
-const CONFIRM_MS = 5000
+// How a task ended, as the participant sees it (participant.outcome.<id>).
+// Neutral on purpose: the participant is never told they passed or failed,
+// which would bias the ease rating that follows, and an unverified task (a
+// Figma embed that sends no events) may well have reached its goal.
+const SHOWN_OUTCOME = { success: 'finished', 'self-reported': 'finished', unverified: 'finished', skipped: 'skipped', timeout: 'timeout' }
+const outcomeLabel = (t, outcome) => (SHOWN_OUTCOME[outcome] ? t(`participant.outcome.${SHOWN_OUTCOME[outcome]}`) : outcome)
+
+// A delete button that asks again: the first press shows "Delete everything"
+// and "Cancel" (which takes the focus). The pair stays until one is pressed
+// or Escape cancels, with no time limit, and cancelling puts the focus back
+// on the first button. The second click of a double click is ignored.
+function DeleteButton({ label, className, small = false, onDelete }) {
+  const t = useT()
+  const [armed, setArmed] = useState(false)
+  const armedAt = useRef(0)
+  const firstRef = useRef(null)
+  const wasArmed = useRef(false)
+  useEffect(() => {
+    if (wasArmed.current && !armed) firstRef.current?.focus()
+    wasArmed.current = armed
+  }, [armed])
+  const size = small ? ' small-btn' : ''
+  const escape = event => { if (event.key === 'Escape') setArmed(false) }
+  const confirm = () => { if (performance.now() - armedAt.current > 500) onDelete() }
+  return armed
+    ? <><button className={`btn danger${size}`} onClick={confirm} onKeyDown={escape}>{t('participant.runner.deleteAll')}</button><button className={`btn ghost${size}`} autoFocus aria-label={t('participant.runner.cancelDelete')} onClick={() => setArmed(false)} onKeyDown={escape}>{t('participant.runner.cancel')}</button></>
+    : <button ref={firstRef} className={`btn ${className}${size}`} onClick={() => { armedAt.current = performance.now(); setArmed(true) }}>{label}</button>
+}
 
 export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, cameraOn, cameraLost, notice, onFinish, onStop }) {
   const t = useT()
@@ -26,13 +50,19 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
   const [elapsed, setElapsed] = useState(0)
   const [faceSeen, setFaceSeen] = useState(false)
   const [lastOutcome, setLastOutcome] = useState(null)
-  const [confirmStop, setConfirmStop] = useState(false)
-  // After each task, the ease rating comes before the next task.
+  // After each task, the ease rating comes before the next task, when the
+  // study asks it.
   const [rating, setRating] = useState(false)
-  const armedAt = useRef(0)
+  const { seq } = runtimeQuestionnaire(study)
+  const introRef = useRef(null)
   const task = study.tasks[index]
   const taskRef = useRef(task)
   taskRef.current = task
+  // Between tasks the card over the frame takes the focus (the button that
+  // ended the task is now disabled), and the frame is inert, so Tab cannot
+  // reach the covered prototype.
+  const intro = !running && !rating
+  useEffect(() => { if (intro) introRef.current?.focus() }, [intro, index])
 
   useEffect(() => subscribe(frame => {
     const features = gazeFeatures(frame.faceResult, aspect())
@@ -45,19 +75,23 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
     recorder.recordGaze(point)
   }), [subscribe, aspect, gazeModel, recorder])
 
+  const next = () => {
+    if (index + 1 >= study.tasks.length) onFinish()
+    else setIndex(index + 1)
+  }
   const finishTask = outcome => {
     if (!runningRef.current) return
     runningRef.current = false
     recorder.endTask(outcome)
     setRunning(false)
     setLastOutcome(outcome)
-    setRating(true)
+    if (seq) setRating(true)
+    else next()
   }
   const rated = value => {
     recorder.rateTask(value, currentLang())
     setRating(false)
-    if (index + 1 >= study.tasks.length) onFinish()
-    else setIndex(index + 1)
+    next()
   }
   const finishRef = useRef(finishTask)
   finishRef.current = finishTask
@@ -73,15 +107,6 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
     }, 250)
     return () => clearInterval(timer)
   }, [running])
-
-  useEffect(() => {
-    if (!confirmStop) return undefined
-    const timer = setTimeout(() => setConfirmStop(false), CONFIRM_MS)
-    return () => clearTimeout(timer)
-  }, [confirmStop])
-  const armStop = () => { armedAt.current = performance.now(); setConfirmStop(true) }
-  // Ignores the second click of a double click on "Stop and delete".
-  const confirmDelete = () => { if (performance.now() - armedAt.current > 500) onStop() }
 
   const start = event => {
     // Drift check: people look at a button while they click it, so the gaze
@@ -128,25 +153,23 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
       <ViewToggles pinnedLang />
     </div>
     <div className="site-frame">
-      <iframe ref={frameRef} title={study.kind === 'figma' ? t('participant.runner.frameFigma') : t('participant.runner.frameSite')} src="about:blank" onLoad={loaded} allow="fullscreen" />
-      {!running && rating && <div className="task-intro"><SeqRating taskNumber={index + 1} outcome={outcomeLabel(t, lastOutcome)} onDone={rated} /></div>}
-      {!running && !rating && <div className="task-intro">
+      <iframe ref={frameRef} title={study.kind === 'figma' ? t('participant.runner.frameFigma') : t('participant.runner.frameSite')} src="about:blank" onLoad={loaded} allow="fullscreen" inert={!running} />
+      {!running && rating && <div className="task-intro"><SeqRating taskNumber={index + 1} outcome={outcomeLabel(t, lastOutcome)} onDone={rated} autoFocus /></div>}
+      {intro && <div className="task-intro">
         <div className="panel intro-card">
           <span className="kicker">{t('participant.runner.kicker', { n: index + 1, total: study.tasks.length })}</span>
-          <h2>{task.prompt}</h2>
-          <p className="muted">{t(study.kind === 'figma' ? 'participant.runner.introFigma' : 'participant.runner.introSite', { minutes: Math.round(task.limitSec / 60) })}</p>
+          <h2 ref={introRef} tabIndex={-1}>{task.prompt}</h2>
+          <p className="muted">{t(study.kind === 'figma' ? 'participant.runner.introFigma' : 'participant.runner.introSite', { duration: durationText(t.lang, task.limitSec) })}</p>
           {notice && <p className="warning">{notice}</p>}
           <button className="btn primary" onClick={start}>{t('participant.runner.start', { n: index + 1 })}</button>
         </div>
       </div>}
       <div className="floating">
-        <span className="chip live borderless"><span className="dot" />{t('participant.runner.local')}</span>
+        <span className="chip live borderless"><span className="dot" />{t(study.kind === 'figma' ? 'participant.runner.localFigma' : 'participant.runner.local')}</span>
         {cameraLost
           ? <span className="chip strong borderless">{t('participant.runner.cameraStopped')}</span>
           : <span className="mono small muted">{cameraOn ? [t('participant.runner.cameraOn'), t(gazeModel ? 'participant.runner.gazeOn' : 'participant.runner.gazeOff'), !faceSeen && t('participant.runner.faceHidden')].filter(Boolean).join(' · ') : t('participant.runner.cameraOff')}</span>}
-        {confirmStop
-          ? <><button className="btn danger small-btn" onClick={confirmDelete}>{t('participant.runner.deleteAll')}</button><button className="btn ghost small-btn" autoFocus onClick={() => setConfirmStop(false)}>{t('participant.runner.cancel')}</button></>
-          : <button className="btn secondary small-btn" onClick={armStop}>{t('participant.runner.stop')}</button>}
+        <DeleteButton label={t('participant.runner.stop')} className="secondary" small onDelete={onStop} />
       </div>
     </div>
   </div>
@@ -155,7 +178,11 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
 // "a, b and c" in the language of t.
 const listText = (t, items) => (items.length > 1 ? t('participant.list.and', { rest: items.slice(0, -1).join(t('participant.list.comma')), last: items.at(-1) }) : items.join(''))
 
-export function Finished({ session, saved, onSaved, onReview, onDelete }) {
+// Where the participant sends the results file: the researcher's name, their
+// contact, both, or (with neither in the link) whoever sent the link.
+const sendKey = contact => (contact?.researcher && contact?.contact ? 'participant.finished.sendBoth' : contact?.researcher ? 'participant.finished.sendName' : contact?.contact ? 'participant.finished.sendContact' : 'participant.finished.sendSender')
+
+export function Finished({ session, contact, saved, onSaved, onReview, onDelete }) {
   const t = useT()
   const download = () => {
     const blob = new Blob([JSON.stringify(session)], { type: 'application/json' })
@@ -165,7 +192,7 @@ export function Finished({ session, saved, onSaved, onReview, onDelete }) {
     onSaved()
   }
   // Names only the camera data the file really has.
-  const rated = session.tasks.some(task => task.seq != null) || session.sus
+  const rated = session.tasks.some(task => task.seq != null) || session.sus || session.umuxLite
   const camera = listText(t, [rated && t('participant.finished.ratings'), session.gaze.length && t('participant.finished.gaze'), (session.face.length || session.baseline) && t('participant.finished.face'), session.quality.accuracy && t('participant.finished.accuracy')].filter(Boolean))
   const plus = camera && t('participant.finished.plus', { list: camera })
   return <div className="screen">
@@ -180,9 +207,12 @@ export function Finished({ session, saved, onSaved, onReview, onDelete }) {
       <div className="actions">
         <button className="btn primary" onClick={download}>{saved ? t('participant.finished.downloadAgain') : t('participant.finished.download')}</button>
         <button className="btn ghost" onClick={onReview}>{t('participant.finished.review')}</button>
-        <button className="btn ghost" onClick={onDelete}>{t('participant.finished.delete')}</button>
+        <DeleteButton label={t('participant.finished.delete')} className="ghost" onDelete={onDelete} />
       </div>
-      {saved && <p className="muted small">{t('participant.finished.savedHint')}</p>}
+      <div className="finished-next" aria-live="polite">{saved && <>
+        <p className="send-to"><Rich text={t(sendKey(contact), contact || {})} tags={{ b: text => <b>{text}</b> }} /></p>
+        <p className="muted small">{t('participant.finished.savedHint')}</p>
+      </>}</div>
     </main>
   </div>
 }
