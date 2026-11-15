@@ -31,7 +31,8 @@ export function createCalibrationSession({ durationMs = 2000, minSamples = 8 } =
       if (signals) samples.push(signals)
       const progress = Math.min(1, (timestamp - startedAt) / durationMs)
       if (progress < 1) return { progress }
-      if (samples.length < minSamples) return { progress, error: 'No steady face found · face the camera and try again' }
+      // error is the English text; errorKey is its message, for other languages.
+      if (samples.length < minSamples) return { progress, error: 'No steady face found · face the camera and try again', errorKey: 'common.vision.noSteadyFace' }
       return { progress, baseline: summarizeBaseline(samples) }
     },
   }

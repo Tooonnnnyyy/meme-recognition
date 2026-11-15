@@ -3,15 +3,20 @@ import { gazeFeatures, predictGaze } from './gaze'
 import { faceSample } from './Calibration'
 import { embedUrl } from './figma'
 import { SeqRating } from './Questionnaires'
-import { ThemeToggle } from '../ThemeToggle'
+import { ViewToggles } from '../ThemeToggle'
+import { currentLang } from '../i18n/index.js'
+import { useT } from '../i18n/react.jsx'
 
 const BASE = import.meta.env.BASE_URL
 const clock = ms => `${String(Math.floor(ms / 60000)).padStart(2, '0')}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
-const OUTCOME_LABELS = { success: 'Completed', 'self-reported': 'Done (self-reported)', unverified: 'Stopped before the goal', skipped: 'Skipped', timeout: 'Ran out of time' }
+// Outcome labels as the participant sees them (participant.outcome.<id>).
+const OUTCOMES = ['success', 'self-reported', 'unverified', 'skipped', 'timeout']
+const outcomeLabel = (t, outcome) => (OUTCOMES.includes(outcome) ? t(`participant.outcome.${outcome}`) : outcome)
 // "Stop and delete" stays armed this long, then goes back to its first state.
 const CONFIRM_MS = 5000
 
 export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, cameraOn, cameraLost, notice, onFinish, onStop }) {
+  const t = useT()
   const frameRef = useRef(null)
   const recent = useRef([])
   const startedAt = useRef(0)
@@ -36,7 +41,7 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
     if (!gazeModel || !features) return
     const point = predictGaze(gazeModel, features)
     const now = performance.now()
-    recent.current = [...recent.current.filter(item => now - item.t < 1000), { t: now, ...point }]
+    recent.current = [...recent.current.filter(item => 1000 > now - item.t), { t: now, ...point }]
     recorder.recordGaze(point)
   }), [subscribe, aspect, gazeModel, recorder])
 
@@ -49,7 +54,7 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
     setRating(true)
   }
   const rated = value => {
-    recorder.rateTask(value)
+    recorder.rateTask(value, currentLang())
     setRating(false)
     if (index + 1 >= study.tasks.length) onFinish()
     else setIndex(index + 1)
@@ -84,7 +89,7 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
     if (gazeModel) {
       const rect = event.currentTarget.getBoundingClientRect()
       const now = performance.now()
-      const points = recent.current.filter(item => now - item.t <= 400)
+      const points = recent.current.filter(item => 400 >= now - item.t)
       if (points.length) {
         const x = points.reduce((sum, item) => sum + item.x, 0) / points.length
         const y = points.reduce((sum, item) => sum + item.y, 0) / points.length
@@ -115,39 +120,43 @@ export function TaskRunner({ study, recorder, gazeModel, subscribe, aspect, came
 
   return <div className="screen runner">
     <div className="taskbar">
-      <span className="chip">TASK {index + 1} / {study.tasks.length}</span>
-      <div className="task-text"><b>{task.prompt}</b><span className="muted small">Think aloud if you like. Click “I’m done” when you have finished.</span></div>
+      <span className="chip">{t('participant.runner.chip', { n: index + 1, total: study.tasks.length })}</span>
+      <div className="task-text"><b>{task.prompt}</b><span className="muted small">{t('participant.runner.thinkAloud')}</span></div>
       <span className="timer mono">{running ? clock(elapsed) : '00:00'}</span>
-      <button className="btn ghost" disabled={!running} onClick={() => finishTask('skipped')}>Skip task</button>
-      <button className="btn primary" disabled={!running} onClick={() => finishTask(task.successPage ? 'unverified' : 'self-reported')}>I’m done</button>
-      <ThemeToggle />
+      <button className="btn ghost" disabled={!running} onClick={() => finishTask('skipped')}>{t('participant.runner.skip')}</button>
+      <button className="btn primary" disabled={!running} onClick={() => finishTask(task.successPage ? 'unverified' : 'self-reported')}>{t('participant.done')}</button>
+      <ViewToggles pinnedLang />
     </div>
     <div className="site-frame">
-      <iframe ref={frameRef} title={study.kind === 'figma' ? 'Prototype being tested' : 'Website being tested'} src="about:blank" onLoad={loaded} allow="fullscreen" />
-      {!running && rating && <div className="task-intro"><SeqRating taskNumber={index + 1} outcome={OUTCOME_LABELS[lastOutcome]} onDone={rated} /></div>}
+      <iframe ref={frameRef} title={study.kind === 'figma' ? t('participant.runner.frameFigma') : t('participant.runner.frameSite')} src="about:blank" onLoad={loaded} allow="fullscreen" />
+      {!running && rating && <div className="task-intro"><SeqRating taskNumber={index + 1} outcome={outcomeLabel(t, lastOutcome)} onDone={rated} /></div>}
       {!running && !rating && <div className="task-intro">
         <div className="panel intro-card">
-          <span className="kicker">Task {index + 1} of {study.tasks.length}</span>
+          <span className="kicker">{t('participant.runner.kicker', { n: index + 1, total: study.tasks.length })}</span>
           <h2>{task.prompt}</h2>
-          <p className="muted">Take your time and use the {study.kind === 'figma' ? 'prototype' : 'website'} as you normally would. You have up to {Math.round(task.limitSec / 60)} minutes.</p>
+          <p className="muted">{t(study.kind === 'figma' ? 'participant.runner.introFigma' : 'participant.runner.introSite', { minutes: Math.round(task.limitSec / 60) })}</p>
           {notice && <p className="warning">{notice}</p>}
-          <button className="btn primary" onClick={start}>Start task {index + 1}</button>
+          <button className="btn primary" onClick={start}>{t('participant.runner.start', { n: index + 1 })}</button>
         </div>
       </div>}
       <div className="floating">
-        <span className="chip live borderless"><span className="dot" />LOCAL</span>
+        <span className="chip live borderless"><span className="dot" />{t('participant.runner.local')}</span>
         {cameraLost
-          ? <span className="chip strong borderless">CAMERA STOPPED</span>
-          : <span className="mono small muted">{cameraOn ? `camera on · ${gazeModel ? 'gaze on' : 'gaze off'}${faceSeen ? '' : ' · face not visible'}` : 'camera off'}</span>}
+          ? <span className="chip strong borderless">{t('participant.runner.cameraStopped')}</span>
+          : <span className="mono small muted">{cameraOn ? [t('participant.runner.cameraOn'), t(gazeModel ? 'participant.runner.gazeOn' : 'participant.runner.gazeOff'), !faceSeen && t('participant.runner.faceHidden')].filter(Boolean).join(' · ') : t('participant.runner.cameraOff')}</span>}
         {confirmStop
-          ? <><button className="btn danger small-btn" onClick={confirmDelete}>Delete everything</button><button className="btn ghost small-btn" autoFocus onClick={() => setConfirmStop(false)}>Cancel</button></>
-          : <button className="btn secondary small-btn" onClick={armStop}>Stop and delete</button>}
+          ? <><button className="btn danger small-btn" onClick={confirmDelete}>{t('participant.runner.deleteAll')}</button><button className="btn ghost small-btn" autoFocus onClick={() => setConfirmStop(false)}>{t('participant.runner.cancel')}</button></>
+          : <button className="btn secondary small-btn" onClick={armStop}>{t('participant.runner.stop')}</button>}
       </div>
     </div>
   </div>
 }
 
+// "a, b and c" in the language of t.
+const listText = (t, items) => (items.length > 1 ? t('participant.list.and', { rest: items.slice(0, -1).join(t('participant.list.comma')), last: items.at(-1) }) : items.join(''))
+
 export function Finished({ session, saved, onSaved, onReview, onDelete }) {
+  const t = useT()
   const download = () => {
     const blob = new Blob([JSON.stringify(session)], { type: 'application/json' })
     const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `usability-session-${session.participant}.json` })
@@ -157,24 +166,23 @@ export function Finished({ session, saved, onSaved, onReview, onDelete }) {
   }
   // Names only the camera data the file really has.
   const rated = session.tasks.some(task => task.seq != null) || session.sus
-  const camera = [rated && 'your ratings and answers', session.gaze.length > 0 && 'estimates of where you looked', (session.face.length > 0 || session.baseline) && 'face movement as numbers', session.quality.accuracy && 'your calibration accuracy'].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' and $1')
+  const camera = listText(t, [rated && t('participant.finished.ratings'), session.gaze.length && t('participant.finished.gaze'), (session.face.length || session.baseline) && t('participant.finished.face'), session.quality.accuracy && t('participant.finished.accuracy')].filter(Boolean))
+  const plus = camera && t('participant.finished.plus', { list: camera })
   return <div className="screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study · {session.study.title} · participant {session.participant}</small></div></div><div className="actions"><span className="chip">CAMERA OFF</span><ThemeToggle /></div></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>{t('participant.studyLine', { title: session.study.title, participant: session.participant })}</small></div></div><div className="actions"><span className="chip">{t('participant.cameraOffChip')}</span><ViewToggles pinnedLang /></div></header>
     <main className="finished">
-      <span className="kicker">Step 3 of 3 · Finished</span>
-      <h1>Thank you</h1>
-      <p className="lede">{session.study.kind === 'figma'
-        ? `The camera is off. Your results file lists where you clicked, the screens you saw, and task times and outcomes${camera && `, plus ${camera}`}. It has no video, no images of you, and nothing you typed.`
-        : `The camera is off. Your results file lists your clicks and what you clicked, the pages you saw, your scrolling, which form controls you changed or moved to, the times you moved the mouse or pressed keys, and task times and outcomes${camera && `, plus ${camera}`}. It has no video, no images of you, nothing you typed into fields, and not which keys you pressed.`}</p>
+      <span className="kicker">{t('participant.finished.kicker')}</span>
+      <h1>{t('participant.finished.title')}</h1>
+      <p className="lede">{t(session.study.kind === 'figma' ? 'participant.finished.ledeFigma' : 'participant.finished.ledeSite', { plus })}</p>
       <div className="panel outcome-list">
-        {session.tasks.map(task => <div key={task.id} className="outcome"><span className="mono">{task.id}</span><span>{task.prompt}</span><span className="muted">{OUTCOME_LABELS[task.outcome]}</span><span className="mono">{clock(task.end - task.start)}</span></div>)}
+        {session.tasks.map(task => <div key={task.id} className="outcome"><span className="mono">{task.id}</span><span>{task.prompt}</span><span className="muted">{outcomeLabel(t, task.outcome)}</span><span className="mono">{clock(task.end - task.start)}</span></div>)}
       </div>
       <div className="actions">
-        <button className="btn primary" onClick={download}>{saved ? 'Download again' : 'Download results file'}</button>
-        <button className="btn ghost" onClick={onReview}>Review this session (researcher)</button>
-        <button className="btn ghost" onClick={onDelete}>Delete my data</button>
+        <button className="btn primary" onClick={download}>{saved ? t('participant.finished.downloadAgain') : t('participant.finished.download')}</button>
+        <button className="btn ghost" onClick={onReview}>{t('participant.finished.review')}</button>
+        <button className="btn ghost" onClick={onDelete}>{t('participant.finished.delete')}</button>
       </div>
-      {saved && <p className="muted small">The file is in your downloads folder. If you delete your data here, delete that file too.</p>}
+      {saved && <p className="muted small">{t('participant.finished.savedHint')}</p>}
     </main>
   </div>
 }

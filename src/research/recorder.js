@@ -1,5 +1,6 @@
 import { FIGMA_ORIGIN, figmaTranslator } from './figma.js'
 import { isSeq, susScore, umuxLiteScore } from './questionnaire.js'
+import { isLang } from '../i18n/index.js'
 
 // Builds the session file while a participant works through the tasks. It
 // watches the test page inside a same-origin iframe: clicks, page changes,
@@ -93,7 +94,11 @@ export function createRecorder({ study, participant }) {
     gaze: [],
     face: [],
     aois: {},
+    // The interface languages the questionnaires were answered in, so the
+    // report can tell when language versions of a scale were mixed.
+    questionnaireLangs: [],
   }
+  const answeredIn = lang => { if (isLang(lang) && !session.questionnaireLangs.includes(lang)) session.questionnaireLangs.push(lang) }
   let task = null
   let page = null
   let frame = null
@@ -254,19 +259,23 @@ export function createRecorder({ study, participant }) {
       task = null
     },
     // The Single Ease Question for the task just ended, 1–7, or null if skipped.
-    rateTask(value) {
+    // lang is the interface language the question was shown in.
+    rateTask(value, lang) {
       const last = session.tasks.at(-1)
       if (last && last.end != null) last.seq = isSeq(value) ? value : null
+      if (isSeq(value)) answeredIn(lang)
     },
     // The ten SUS answers (1–5 each), or null if skipped.
-    setSus(answers) {
+    setSus(answers, lang) {
       const score = susScore(answers)
       session.sus = score == null ? null : { answers: [...answers], score }
+      if (score != null) answeredIn(lang)
     },
     // The two UMUX-Lite answers (1–7 each), or null if skipped.
-    setUmuxLite(answers) {
+    setUmuxLite(answers, lang) {
       const score = umuxLiteScore(answers)
       session.umuxLite = score && { answers: [...answers], ...score }
+      if (score) answeredIn(lang)
     },
     // A moderator's note, stamped with the time and the running (or last) task.
     // #words in the text become tags, which group notes across participants.

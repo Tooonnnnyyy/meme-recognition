@@ -2,6 +2,7 @@
 // browser's IndexedDB on the researcher's own computer. Nothing is uploaded.
 // A whole workspace or one study can be exported as a package file (JSON) for
 // backup or to move to another computer.
+import { TextError } from '../i18n/index.js'
 
 export const PACKAGE_FORMAT = 'usability-lab/package@1'
 const DB_NAME = 'usability-lab'
@@ -113,11 +114,11 @@ export async function exportPackage(ids) {
 // screen's readSession, given as a function so this module stays UI-free).
 // Existing studies with the same id are replaced; sessions are merged by key.
 export async function importPackage(data, checkSession) {
-  if (!data || data.format !== PACKAGE_FORMAT || !Array.isArray(data.studies) || !Array.isArray(data.sessions)) throw new Error('This is not a Usability Lab package file.')
+  if (!data || data.format !== PACKAGE_FORMAT || !Array.isArray(data.studies) || !Array.isArray(data.sessions)) throw new TextError('study.import.notPackage')
   const store = await workspace()
   const ids = new Set()
   for (const study of data.studies) {
-    if (!study || typeof study.id !== 'string' || !Array.isArray(study.tasks) || typeof study.title !== 'string') throw new Error('A study in this package is damaged.')
+    if (!study || typeof study.id !== 'string' || !Array.isArray(study.tasks) || typeof study.title !== 'string') throw new TextError('study.import.damagedStudy')
     await store.putStudy(study)
     ids.add(study.id)
   }

@@ -6,25 +6,30 @@
 // SUS, the System Usability Scale (Brooke 1996): ten 5-point items after the
 // test. "System" is replaced by the product word, which keeps the scale valid
 // (Lewis & Sauro 2009). Scores run 0–100; 68 is the average across products.
+//
+// The wording comes from the participant messages (participant.seq.*,
+// participant.sus.*, participant.umux.*), in English or Chinese. The Chinese
+// follows the SUS translation in common use, not the validated revision by
+// Wang, Lei & Liu (2019); see docs/i18n.md. Each function takes the language
+// (default English); the constants are the English wording.
+import { translate } from '../i18n/index.js'
 
-export const SEQ_QUESTION = 'Overall, how difficult or easy was this task?'
-export const SEQ_ENDS = ['Very difficult', 'Very easy']
+export const seqQuestion = (lang = 'en') => translate(lang, 'participant.seq.question')
+export const seqEnds = (lang = 'en') => [translate(lang, 'participant.seq.difficult'), translate(lang, 'participant.seq.easy')]
+export const SEQ_QUESTION = seqQuestion()
+export const SEQ_ENDS = seqEnds()
 export const isSeq = value => Number.isInteger(value) && value >= 1 && value <= 7
 
-export const SUS_SCALE = ['Strongly disagree', 'Disagree', 'Neutral', 'Agree', 'Strongly agree']
-const SUS_TEXT = [
-  'I think that I would like to use this {p} frequently.',
-  'I found the {p} unnecessarily complex.',
-  'I thought the {p} was easy to use.',
-  'I think that I would need the support of a technical person to be able to use this {p}.',
-  'I found the various functions in this {p} were well integrated.',
-  'I thought there was too much inconsistency in this {p}.',
-  'I would imagine that most people would learn to use this {p} very quickly.',
-  'I found the {p} very cumbersome to use.',
-  'I felt very confident using the {p}.',
-  'I needed to learn a lot of things before I could get going with this {p}.',
-]
-export const susItems = product => SUS_TEXT.map(text => text.replace('{p}', product))
+export const susScale = (lang = 'en') => [1, 2, 3, 4, 5].map(n => translate(lang, `participant.sus.scale${n}`))
+export const SUS_SCALE = susScale()
+// The product word ('prototype', 'website', 'product') in the given
+// language; any other word is used as it is.
+const productWord = (product, lang) => {
+  const key = `participant.product.${product}`
+  const word = translate(lang, key)
+  return word === key ? product : word
+}
+export const susItems = (product, lang = 'en') => Array.from({ length: 10 }, (_, index) => translate(lang, `participant.sus.item${index + 1}`, { p: productWord(product, lang) }))
 
 // Odd items are positive (answer − 1), even items negative (5 − answer); the
 // sum of the ten contributions times 2.5 gives 0–100. Null unless all ten
@@ -43,9 +48,10 @@ export const susGrade = score => (score == null ? null : (GRADES.find(([floor]) 
 // alternative to the SUS when time is tight. The raw score runs 0–100; the
 // regression 0.65 × raw + 22.9 puts it on the SUS scale, so the same grades
 // apply.
-export const UMUX_LITE_SCALE = ['Strongly disagree', '', '', '', '', '', 'Strongly agree']
-const UMUX_TEXT = ["This {p}'s capabilities meet my requirements.", 'This {p} is easy to use.']
-export const umuxLiteItems = product => UMUX_TEXT.map(text => text.replace('{p}', product))
+// The scale names only its ends.
+export const umuxLiteScale = (lang = 'en') => [translate(lang, 'participant.sus.scale1'), '', '', '', '', '', translate(lang, 'participant.sus.scale5')]
+export const UMUX_LITE_SCALE = umuxLiteScale()
+export const umuxLiteItems = (product, lang = 'en') => [1, 2].map(n => translate(lang, `participant.umux.item${n}`, { p: productWord(product, lang) }))
 export function umuxLiteScore(answers) {
   if (!Array.isArray(answers) || answers.length !== 2 || !answers.every(answer => Number.isInteger(answer) && answer >= 1 && answer <= 7)) return null
   const raw = ((answers[0] - 1) + (answers[1] - 1)) / 12 * 100

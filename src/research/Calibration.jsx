@@ -1,6 +1,8 @@
 import React, { useEffect, useReducer, useRef } from 'react'
 import { DEGREES_PER_CSS_PX, fitGazeModel, gazeFeatures, measureAccuracy } from './gaze'
 import { GAZE_THRESHOLD_DEGREES } from './study'
+import { formatNumber } from '../i18n/index.js'
+import { useT } from '../i18n/react.jsx'
 
 // Nine dots to fit the gaze model, then nine different dots to measure how
 // accurate it is. Accuracy is always measured on points the model never saw,
@@ -13,7 +15,8 @@ const MIN_SAMPLES = 6
 const MAX_ATTEMPTS = 3
 // No camera frame for this long means the camera or the vision engine stopped.
 const STALL_MS = 3000
-const STALL_WARNING = 'The camera stopped sending pictures. Click the dot to try again, or skip gaze and continue.'
+// Warnings are message keys, shown in the current language.
+const STALL_WARNING = 'participant.calibration.stalled'
 // A baseline from fewer face frames is too noisy to judge brow and lean by.
 const BASELINE_SAMPLES = 15
 
@@ -30,6 +33,9 @@ export const faceSample = (frame, features) => {
 const freshState = attempt => ({ phase: 'calibrate', index: 0, attempt, calibration: [], validation: [], brow: [], scale: [], collect: null, warning: '', faceSeen: false, stalled: false, model: null, accuracy: null })
 
 export function Calibration({ subscribe, aspect, onDone }) {
+  const t = useT()
+  // One decimal, rounded as toFixed(1) rounds.
+  const degrees = value => formatNumber(t.lang, Number(value.toFixed(1)), { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false })
   const state = useRef(freshState(1))
   const lastFrame = useRef(performance.now())
   const [, render] = useReducer(count => count + 1, 0)
@@ -52,7 +58,7 @@ export function Calibration({ subscribe, aspect, onDone }) {
     if (performance.now() < collect.until) return
     current.collect = null
     if (collect.samples.length < MIN_SAMPLES) {
-      current.warning = 'We could not see your face clearly. Sit centred in even light, then click the dot again.'
+      current.warning = 'participant.calibration.noFace'
       render()
       return
     }
@@ -76,8 +82,8 @@ export function Calibration({ subscribe, aspect, onDone }) {
     const timer = setInterval(() => {
       const current = state.current
       const now = performance.now()
-      const stuck = current.collect && now - Math.max(lastFrame.current, current.collect.start) > STALL_MS
-      if (!stuck && (current.stalled || now - lastFrame.current < STALL_MS)) return
+      const stuck = current.collect && STALL_MS < now - Math.max(lastFrame.current, current.collect.start)
+      if (!stuck && (current.stalled || STALL_MS > now - lastFrame.current)) return
       if (stuck) current.collect = null
       current.stalled = true
       current.warning = STALL_WARNING
@@ -124,35 +130,35 @@ export function Calibration({ subscribe, aspect, onDone }) {
         </g>)}
       </svg>
       <div className="panel result-panel">
-        <span className="kicker">Step 2 of 3 · Check accuracy</span>
-        <h2>{passed ? 'Accuracy check passed' : 'Accuracy is too low for gaze'}</h2>
-        <p className="muted small">We compared {accuracy.points.length} new dots with where the camera thinks you looked.</p>
-        <div className={`big ${passed ? '' : 'is-bad'}`}>{accuracy.meanDegrees.toFixed(1)}°</div>
-        <span className="mono small muted">≈ {Math.round(accuracy.meanPx)} px average error · threshold {GAZE_THRESHOLD_DEGREES.toFixed(1)}° ({Math.round(GAZE_THRESHOLD_DEGREES / DEGREES_PER_CSS_PX)} px)</span>
+        <span className="kicker">{t('participant.calibration.resultKicker')}</span>
+        <h2>{passed ? t('participant.calibration.passed') : t('participant.calibration.tooLow')}</h2>
+        <p className="muted small">{t('participant.calibration.compared', { count: accuracy.points.length })}</p>
+        <div className={`big ${passed ? '' : 'is-bad'}`}>{degrees(accuracy.meanDegrees)}°</div>
+        <span className="mono small muted">{t('participant.calibration.error', { px: Math.round(accuracy.meanPx), threshold: degrees(GAZE_THRESHOLD_DEGREES), thresholdPx: Math.round(GAZE_THRESHOLD_DEGREES / DEGREES_PER_CSS_PX) })}</span>
         <div className="meter"><i style={{ width: `${percent}%` }} className={passed ? '' : 'is-bad'} /><b style={{ left: `${tip}%` }} /></div>
-        <p className="small">{passed ? `Areas smaller than about ${Math.round(accuracy.meanPx * 2)} px will be merged for analysis.` : `Clicks, page changes and facial movement still work without gaze.${canRetry ? ' You can try again with your face centred and evenly lit.' : ''}`}</p>
-        <div className="legend"><span><i className="swatch cross-swatch" />dot you looked at</span><span><i className="swatch estimate-swatch" />camera estimate</span><span><i className="swatch error-swatch" />error</span></div>
+        <p className="small">{passed ? t('participant.calibration.merged', { px: Math.round(accuracy.meanPx * 2) }) : t(canRetry ? 'participant.calibration.withoutGazeRetry' : 'participant.calibration.withoutGaze')}</p>
+        <div className="legend"><span><i className="swatch cross-swatch" />{t('participant.calibration.legendTarget')}</span><span><i className="swatch estimate-swatch" />{t('participant.calibration.legendEstimate')}</span><span><i className="swatch error-swatch" />{t('participant.calibration.legendError')}</span></div>
         <div className="actions">
-          {passed ? <button className="btn primary" onClick={() => finish(true)}>Start the tasks</button> : <button className="btn primary" onClick={() => finish(false)}>Continue without gaze</button>}
-          {canRetry && <button className="btn ghost" onClick={retry}>Recalibrate</button>}
+          {passed ? <button className="btn primary" onClick={() => finish(true)}>{t('participant.startTasks')}</button> : <button className="btn primary" onClick={() => finish(false)}>{t('participant.calibration.continueWithoutGaze')}</button>}
+          {canRetry && <button className="btn ghost" onClick={retry}>{t('participant.calibration.recalibrate')}</button>}
         </div>
       </div>
     </div>
   }
 
   const [px, py] = points[current.index]
-  const [chipClass, chipText] = current.stalled ? ['strong', 'CAMERA NOT RESPONDING'] : current.faceSeen ? ['live', 'FACE FOUND'] : ['strong', 'LOOKING FOR YOUR FACE']
+  const [chipClass, chipText] = current.stalled ? ['strong', 'participant.calibration.notResponding'] : current.faceSeen ? ['live', 'participant.calibration.faceFound'] : ['strong', 'participant.calibration.lookingForFace']
   // The instructions and camera preview move to the bottom while the dot is
   // in the top half, so they never cover it.
   return <div className={`calibration ${py < 0.5 ? 'is-dot-high' : ''}`}>
-    <button className={`calibration-dot ${current.collect ? 'is-collecting' : ''}`} style={{ left: `${px * 100}%`, top: `${py * 100}%` }} onClick={clickDot} aria-label={`Calibration dot ${current.index + 1}`} />
+    <button className={`calibration-dot ${current.collect ? 'is-collecting' : ''}`} style={{ left: `${px * 100}%`, top: `${py * 100}%` }} onClick={clickDot} aria-label={t('participant.calibration.dot', { n: current.index + 1 })} />
     <div className="calibration-head">
-      <span className="kicker">Step 2 of 3 · {current.phase === 'validate' ? 'Check accuracy' : 'Calibrate'} · dot {current.index + 1} of {points.length}</span>
-      <h2>Look at the dot, then click it</h2>
-      <p className="muted">Keep looking at it until it shrinks away.{current.attempt > 1 ? ` Attempt ${current.attempt} of ${MAX_ATTEMPTS}.` : ''}</p>
-      <span className={`chip ${chipClass}`}><span className="dot" />{chipText}</span>
-      {current.warning && <p className="warning">{current.warning}</p>}
-      <button className="text-button" onClick={skip}>Skip gaze and continue</button>
+      <span className="kicker">{t(current.phase === 'validate' ? 'participant.calibration.kickerValidate' : 'participant.calibration.kickerCalibrate', { n: current.index + 1, total: points.length })}</span>
+      <h2>{t('participant.calibration.look')}</h2>
+      <p className="muted">{current.attempt > 1 ? t('participant.calibration.keepLookingAttempt', { attempt: current.attempt, max: MAX_ATTEMPTS }) : t('participant.calibration.keepLooking')}</p>
+      <span className={`chip ${chipClass}`}><span className="dot" />{t(chipText)}</span>
+      {current.warning && <p className="warning">{t(current.warning)}</p>}
+      <button className="text-button" onClick={skip}>{t('participant.calibration.skip')}</button>
     </div>
   </div>
 }
