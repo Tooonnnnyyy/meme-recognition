@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { LabHeader } from './LabNav'
+import { LabHeader, studyHref } from './LabNav'
 import { saveSession, sessionKeyOf, sessionsOf, workspace } from './workspace'
 import { Review } from '../research/Review'
 import { Report } from '../research/Report'
@@ -41,9 +41,18 @@ export function LabReview({ id, sessionKey }) {
   return <Review initialSession={session} onSave={reviewed => saveSession(id, reviewed)} nav={<BackToResults id={id} />} />
 }
 
+// The report keeps the study's header and tabs. It shows the workspace's
+// sessions only: results files are added on Run, where they are saved.
 export function LabReport({ id }) {
+  const t = useT()
   const { study, sessions } = useStudy(id)
   if (study === false) { return <Missing what="lab.study.missing" /> }
   if (!study || !sessions) { return <Loading /> }
-  return <Report initialSessions={sessions} title={study.title} nav={<BackToResults id={id} />} />
+  return <Report lab initialSessions={sessions} title={study.title} post={study.questionnaire?.post}
+    header={actions => <LabHeader study={study} current="report">{actions}</LabHeader>}
+    empty={<main className="center-note">
+      <h2>{t('report.lab.emptyTitle')}</h2>
+      <p className="muted">{t(study.method === 'unmoderated' ? 'report.lab.emptyLedeLink' : 'report.lab.emptyLede')}</p>
+      <a className="btn primary" href={studyHref('study', id, 'run')}>{t('report.lab.toRun')}</a>
+    </main>} />
 }

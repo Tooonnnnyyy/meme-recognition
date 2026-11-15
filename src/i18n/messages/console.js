@@ -20,6 +20,9 @@ export default {
     'setup.consent': 'Go through the consent form and answer questions.',
     'setup.consentGenerate': 'Go through the consent form (generate it under Documents) and answer questions.',
     'setup.thinkAloud': 'Ask them to think aloud. Close other tabs and notifications.',
+    // When this participant code already has a finished session.
+    'setup.taken': '{code} already has a finished session. Beginning again saves a second session as {code}.',
+    'setup.openSlot': 'Start session {code} instead',
     'setup.consented': 'The participant has given consent (signed or verbal, as your ethics approval says)',
     'setup.begin': 'Begin session',
     'setup.back': 'Back',
@@ -37,10 +40,13 @@ export default {
     // The session bar.
     'bar.pilot': 'pilot',
     'bar.task': 'task {n} of {total}',
-    over: 'OVER {minutes} MIN',
+    // {limit} is the task's time limit, such as "1 MIN 30 S".
+    over: 'OVER THE LIMIT · {limit}',
     end: 'End session',
     endNow: 'End session now',
     cancel: 'Cancel',
+    // Browser Back or Forward during a session.
+    leave: 'Leave this session? What is recorded so far is kept, but the session cannot be continued.',
 
     // What the participant sees.
     'stage.frameTitle': 'Prototype being tested',
@@ -63,6 +69,8 @@ export default {
     'panel.notePlaceholder': 'What happened  #tag groups it',
     'panel.add': 'Add <kbd>Enter</kbd>',
     'panel.deleteNote': 'Delete note',
+    // While the embedded prototype has keyboard focus.
+    'panel.paused': '<b>Keys paused.</b> The prototype has the keyboard. Click anywhere in this panel to use the keys again.',
     'panel.hotkeys': 'Keys: <kbd>N</kbd> note <kbd>P</kbd> problem <kbd>Q</kbd> quote <kbd>A</kbd> assist <kbd>E</kbd> error · <kbd>1</kbd>–<kbd>4</kbd> outcome · <kbd>Esc</kbd> leaves the note field.',
   },
   zh: {
@@ -81,6 +89,8 @@ export default {
     'setup.consent': '和参与者一起阅读知情同意书，并解答疑问。',
     'setup.consentGenerate': '和参与者一起阅读知情同意书（可在“文档”中生成），并解答疑问。',
     'setup.thinkAloud': '请参与者边操作边说出想法。关闭其他标签页和通知。',
+    'setup.taken': '{code} 已有一个已完成的场次。再次开始会以 {code} 另存一个新场次。',
+    'setup.openSlot': '改为开始场次 {code}',
     'setup.consented': '参与者已表示知情同意（按伦理审批的要求，签字或口头同意）',
     'setup.begin': '开始场次',
     'setup.back': '返回',
@@ -96,10 +106,11 @@ export default {
 
     'bar.pilot': '预测试',
     'bar.task': '任务{n}/{total}',
-    over: '超出{minutes}分钟时限',
+    over: '超出{limit}时限',
     end: '结束场次',
     endNow: '立即结束场次',
     cancel: '取消',
+    leave: '要离开这个场次吗？目前记录的内容会保留，但这个场次无法继续。',
 
     'stage.frameTitle': '正在测试的原型',
     'stage.previous': '上一个任务 · {outcome}',
@@ -119,6 +130,7 @@ export default {
     'panel.notePlaceholder': '发生了什么  用 #标签 归类',
     'panel.add': '添加 <kbd>Enter</kbd>',
     'panel.deleteNote': '删除笔记',
+    'panel.paused': '<b>快捷键已暂停。</b>现在键盘正在操作原型。点击此面板任意位置即可恢复快捷键。',
     'panel.hotkeys': '快捷键：<kbd>N</kbd> 笔记 <kbd>P</kbd> 问题 <kbd>Q</kbd> 原话 <kbd>A</kbd> 协助 <kbd>E</kbd> 错误 · <kbd>1</kbd>\u2060–\u2060<kbd>4</kbd> 结果 · <kbd>Esc</kbd> 退出笔记输入框。',
   },
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { NATIVE, currentLang, pinLang, pinnedLang } from '../i18n/index.js'
+import { NATIVE, currentLang, durationText, pinLang, pinnedLang } from '../i18n/index.js'
 import { Rich, useT } from '../i18n/react.jsx'
 import { LabHeader, studyHref } from './LabNav'
 import { saveSession, sessionKeyOf, sessionsOf, workspace } from './workspace'
@@ -8,14 +8,24 @@ import { createRecorder } from '../research/recorder'
 import { embedUrl } from '../research/figma'
 import { SeqRating, SusForm, UmuxLiteForm } from '../research/Questionnaires'
 import { NOTE_KINDS } from '../research/Review'
+import { isFinished } from '../research/sessionStatus'
 
 const BASE = import.meta.env.BASE_URL
-const clock = ms => `${String(Math.floor(ms / 60000)).padStart(2, '0')}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
+const clock = ms => {
+  const seconds = Math.max(0, Math.floor(ms / 1000))
+  return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
+}
 // Hotkeys: notes by their first letter, outcomes by number.
 const NOTE_KEYS = { n: 'note', p: 'problem', q: 'quote', a: 'assist', e: 'error' }
 const OUTCOME_KEYS = { 1: 'success', 2: 'partial', 3: 'failed', 4: 'skipped' }
 const typing = target => /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName) || target?.isContentEditable
+// Enter and Space on a focused control belong to that control.
+const onControl = target => target instanceof Element && Boolean(target.closest('a[href], button, summary, [role=button], [role=radio], [role=link]'))
 const kbd = text => <kbd>{text}</kbd>
+// A slot is open until a real participant (not a pilot) finishes a session
+// under its code. Returns the first open slot's index, or -1.
+const finishedCodes = sessions => new Set(sessions.filter(session => !session.pilot && isFinished(session)).map(session => session.participant))
+const openSlot = (planned, taken) => Array.from({ length: planned }, (_, slot) => participantId(slot)).findIndex(code => !taken.has(code))
 // From Begin session to the end, the session screens (and the moderator's
 // panel, which shares the page) show the study's language, as participants
 // see it everywhere else. The questionnaires let the participant switch
@@ -46,6 +56,12 @@ export function Console({ id, slot }) {
   const [notes, setNotes] = useState([])
   const [lastOutcome, setLastOutcome] = useState(null)
   const [confirmEnd, setConfirmEnd] = useState(false)
+  // Sessions already saved for this study: read at setup, and again when
+  // this one is done, to find the next open slot.
+  const [saved, setSaved] = useState([])
+  // True while the prototype has keyboard focus: the moderator keys then go
+  // to the prototype, not to this page.
+  const [keysPaused, setKeysPaused] = useState(false)
   const recorderRef = useRef(null)
   const frameRef = useRef(null)
   const noteRef = useRef(null)
@@ -57,11 +73,15 @@ export function Console({ id, slot }) {
       const found = await (await workspace()).getStudy(id)
       if (!found) return setStudy(false)
       const existing = await sessionsOf(id)
+      setSaved(existing)
       setCode(pilot ? `PILOT-${existing.filter(session => session.pilot).length + 1}` : participantId(index))
       setStudy(found)
     })()
   }, [id, slot])
   useEffect(() => releaseLang, [])
+  useEffect(() => {
+    if (phase === 'done') sessionsOf(id).then(setSaved, () => {})
+  }, [phase, id])
 
   const order = study ? taskOrder(study, index) : []
   const runtime = study ? toRuntimeStudy(study, order) : null
@@ -69,6 +89,8 @@ export function Console({ id, slot }) {
   const definition = study ? study.tasks.find(item => item.id === task?.id) : undefined
   const embedded = runtime && runtime.kind !== 'observed'
   const outcomeLabel = outcome => (OUTCOMES[outcome] ? t(`study.outcome.${outcome}`) : outcome)
+  // The participant sees the stage, so it never shows pass or fail there.
+  const shownOutcome = outcome => t(outcome === 'skipped' ? 'participant.outcome.skipped' : 'participant.outcome.finished')
   const kindLabel = kind => (NOTE_KINDS[kind] ? t(`study.note.${kind}`) : kind)
 
   const persist = () => recorderRef.current && saveSession(id, recorderRef.current.session)
@@ -110,6 +132,9 @@ export function Console({ id, slot }) {
     recorderRef.current.endTask(outcome)
     setLastOutcome(outcome)
     persist()
+    // A success page can end the task while the prototype has focus: take
+    // the keyboard back so the moderator keys work for what comes next.
+    if (frameRef.current && document.activeElement === frameRef.current) frameRef.current.blur()
     if (study.questionnaire.seq) setPhase('rating')
     else advance()
   }
@@ -141,12 +166,15 @@ export function Console({ id, slot }) {
 
   const addNote = event => {
     event?.preventDefault()
-    const note = recorderRef.current?.addNote(noteKind, noteText)
+    // Between tasks a note belongs to the task about to start.
+    const note = recorderRef.current?.addNote(noteKind, noteText, phase === 'intro' ? task?.id : undefined)
     if (!note) return
     persist()
     setNotes([...recorderRef.current.session.notes])
     setNoteText('')
     setNoteKind('note')
+    // Leave the field, so the next key is a moderator key again.
+    noteRef.current?.blur()
   }
   const removeNote = note => {
     recorderRef.current.removeNote(note)
@@ -169,6 +197,30 @@ export function Console({ id, slot }) {
     addEventListener('beforeunload', warn)
     return () => removeEventListener('beforeunload', warn)
   }, [phase])
+  // Back and Forward only change the address's #part, which beforeunload
+  // does not see. popstate comes before the hashchange the Lab's router
+  // follows: ask there, and on Cancel put this session's address back, so
+  // the router finds the same route and the session stays on screen.
+  useEffect(() => {
+    if (['setup', 'done'].includes(phase)) return undefined
+    const here = location.href
+    const guard = () => {
+      if (location.href === here || window.confirm(t('console.leave'))) return
+      history.pushState(null, '', here)
+    }
+    addEventListener('popstate', guard)
+    return () => removeEventListener('popstate', guard)
+  }, [phase, t])
+
+  // The page loses focus when the participant clicks into the prototype
+  // (focus moves into the iframe) and gets it back on a click in the page.
+  useEffect(() => {
+    const check = () => setKeysPaused(Boolean(frameRef.current) && document.activeElement === frameRef.current)
+    const onBlur = () => setTimeout(check, 0)
+    addEventListener('blur', onBlur)
+    addEventListener('focus', check)
+    return () => { removeEventListener('blur', onBlur); removeEventListener('focus', check) }
+  }, [])
 
   // Moderator hotkeys, ignored while typing in a field.
   useEffect(() => {
@@ -187,7 +239,8 @@ export function Console({ id, slot }) {
       } else if (phase === 'running' && OUTCOME_KEYS[key]) {
         event.preventDefault()
         endRef.current(OUTCOME_KEYS[key])
-      } else if (phase === 'intro' && (event.key === 'Enter' || event.key === ' ')) {
+      } else if (phase === 'intro' && (event.key === 'Enter' || event.key === ' ') && !event.repeat && !onControl(event.target)) {
+        // A held key (the Enter that just saved a note) does not start the task.
         event.preventDefault()
         start()
       }
@@ -209,33 +262,43 @@ export function Console({ id, slot }) {
     }} />
   }
 
-  if (phase === 'setup') return <div className="screen">
-    <LabHeader study={study} current="run" />
-    <main className="center-note console-setup">
-      <span className="kicker">{pilot ? t('console.setup.kickerPilot') : t('console.setup.kicker')}</span>
-      <h2>{t('console.session', { code })}</h2>
-      <p className="muted">{sentences(t.lang, [
-        t('console.setup.order', { count: runtime.tasks.length, order: order.join(' → ') }),
-        study.questionnaire.seq && t('console.setup.seq'),
-        study.questionnaire.post !== 'none' && t('console.setup.post', { scale: study.questionnaire.post === 'sus' ? 'SUS' : 'UMUX-Lite' }),
-      ])}</p>
-      {runtime.lang !== t.lang && <p className="muted">{t('console.setup.langMismatch', { lang: NATIVE[runtime.lang] })}</p>}
-      <ol className="checklist">
-        <li>{t('console.setup.welcome')}</li>
-        <li>{study.consent.researcher ? t('console.setup.consent') : t('console.setup.consentGenerate')}</li>
-        <li>{t('console.setup.thinkAloud')}</li>
-      </ol>
-      <label className="check" htmlFor="consented"><input id="consented" type="checkbox" checked={consented} onChange={event => setConsented(event.target.checked)} />{t('console.setup.consented')}</label>
-      <div className="actions">
-        <button className="btn primary" disabled={!consented} onClick={begin}>{t('console.setup.begin')}</button>
-        <a className="btn ghost" href={studyHref('study', study.id, 'run')}>{t('console.setup.back')}</a>
-      </div>
-    </main>
-  </div>
+  if (phase === 'setup') {
+    const finished = finishedCodes(saved)
+    const taken = !pilot && finished.has(code)
+    const open = taken ? openSlot(study.plannedParticipants, finished) : -1
+    return <div className="screen">
+      <LabHeader study={study} current="run" />
+      <main className="center-note console-setup">
+        <span className="kicker">{pilot ? t('console.setup.kickerPilot') : t('console.setup.kicker')}</span>
+        <h2>{t('console.session', { code })}</h2>
+        <p className="muted">{sentences(t.lang, [
+          t('console.setup.order', { count: runtime.tasks.length, order: order.join(' → ') }),
+          study.questionnaire.seq && t('console.setup.seq'),
+          study.questionnaire.post !== 'none' && t('console.setup.post', { scale: study.questionnaire.post === 'sus' ? 'SUS' : 'UMUX-Lite' }),
+        ])}</p>
+        {runtime.lang !== t.lang && <p className="muted">{t('console.setup.langMismatch', { lang: NATIVE[runtime.lang] })}</p>}
+        {taken && <div className="banner-box console-taken" role="note">
+          <p>{t('console.setup.taken', { code })}</p>
+          {open >= 0 && <a className="btn secondary small-btn" href={studyHref('run', study.id, String(open))}>{t('console.setup.openSlot', { code: participantId(open) })}</a>}
+        </div>}
+        <ol className="checklist">
+          <li>{t('console.setup.welcome')}</li>
+          <li>{study.consent.researcher ? t('console.setup.consent') : t('console.setup.consentGenerate')}</li>
+          <li>{t('console.setup.thinkAloud')}</li>
+        </ol>
+        <label className="check" htmlFor="consented"><input id="consented" type="checkbox" checked={consented} onChange={event => setConsented(event.target.checked)} />{t('console.setup.consented')}</label>
+        <div className="actions">
+          <button className="btn primary" disabled={!consented} onClick={begin}>{t('console.setup.begin')}</button>
+          <a className="btn ghost" href={studyHref('study', study.id, 'run')}>{t('console.setup.back')}</a>
+        </div>
+      </main>
+    </div>
+  }
 
   if (phase === 'done') {
     const session = recorderRef.current.session
-    const next = pilot ? null : index + 1
+    // This session counts even if its last save has not landed yet.
+    const next = pilot ? -1 : openSlot(study.plannedParticipants, finishedCodes([...saved, session]))
     return <div className="screen">
       <LabHeader study={study} current="run" />
       <main className="center-note">
@@ -248,7 +311,7 @@ export function Console({ id, slot }) {
           session.umuxLite && `UMUX-Lite ${session.umuxLite.raw}`,
         ].filter(Boolean).join(' · ')}{t('console.fullStop')}</p>
         <div className="actions">
-          {next !== null && next < study.plannedParticipants && <a className="btn primary" href={studyHref('run', study.id, String(next))}>{t('console.done.next', { code: participantId(next) })}</a>}
+          {next >= 0 && <a className="btn primary" href={studyHref('run', study.id, String(next))}>{t('console.done.next', { code: participantId(next) })}</a>}
           <a className="btn secondary" href={studyHref('review', study.id, sessionKeyOf(study.id, session))}>{t('console.done.review')}</a>
           <a className="btn ghost" href={studyHref('study', study.id, 'results')}>{t('console.done.results')}</a>
         </div>
@@ -257,14 +320,18 @@ export function Console({ id, slot }) {
   }
 
   const overTime = phase === 'running' && elapsed > task.limitSec * 1000
-  const taskNotes = notes.filter(note => note.taskId === task?.id)
+  // The notes of the task on screen (between tasks, the one about to
+  // start), and any note that belongs to no task in this session.
+  const taskNotes = notes.filter(note => note.taskId === task?.id || !runtime.tasks.some(item => item.id === note.taskId))
+  // Time into its task; a note typed before the task started shows 00:00.
+  const noteTime = note => clock(note.t - (recorderRef.current.session.tasks.find(item => item.id === note.taskId)?.start ?? note.t))
   const position = { n: taskIndex + 1, total: runtime.tasks.length }
   return <div className="screen console">
     <header className="topbar console-bar">
       <div className="brand"><span className="mark">◎</span><div><strong>{study.title}</strong><small>{code}{pilot ? ` · ${t('console.bar.pilot')}` : ''} · {t('console.bar.task', position)}</small></div></div>
       <div className="actions">
         <span className={`timer mono ${overTime ? 'over' : ''}`} aria-live="off">{phase === 'running' ? clock(elapsed) : '00:00'}</span>
-        {overTime && <span className="chip strong">{t('console.over', { minutes: Math.round(task.limitSec / 60) })}</span>}
+        {overTime && <span className="chip strong">{t('console.over', { limit: durationText(t.lang, task.limitSec).toUpperCase() })}</span>}
         {confirmEnd
           ? <><button className="btn danger small-btn" onClick={finish}>{t('console.endNow')}</button><button className="btn ghost small-btn" autoFocus onClick={() => setConfirmEnd(false)}>{t('console.cancel')}</button></>
           : <button className="btn ghost small-btn" onClick={() => setConfirmEnd(true)}>{t('console.end')}</button>}
@@ -272,20 +339,23 @@ export function Console({ id, slot }) {
     </header>
     <div className="console-body">
       <main className="console-stage">
-        {embedded && <iframe ref={frameRef} className={phase === 'running' ? '' : 'is-waiting'} title={t('console.stage.frameTitle')} src="about:blank" onLoad={loaded} allow="fullscreen" />}
-        {phase === 'intro' && <div className="stage-card panel">
-          {lastOutcome && <span className="chip live">{t('console.stage.previous', { outcome: outcomeLabel(lastOutcome).toUpperCase() })}</span>}
-          <span className="kicker">{t('console.stage.task', position)}</span>
-          <h2 className="task-big">{task.prompt}</h2>
-          <button className="btn primary" onClick={start}><Rich text={t('console.stage.start')} tags={{ kbd }} /></button>
-        </div>}
-        {phase === 'running' && !embedded && <div className="stage-card panel">
-          <span className="kicker">{t('console.stage.task', position)}</span>
-          <h2 className="task-big">{task.prompt}</h2>
-          <p className="muted">{t('console.stage.thinkAloud')}</p>
-        </div>}
+        <div className="stage-view">
+          {embedded && <iframe ref={frameRef} className={phase === 'running' ? '' : 'is-waiting'} title={t('console.stage.frameTitle')} src="about:blank" onLoad={loaded} allow="fullscreen" />}
+          {phase === 'intro' && <div className="stage-card panel">
+            {lastOutcome && <span className="chip live">{t('console.stage.previous', { outcome: shownOutcome(lastOutcome).toUpperCase() })}</span>}
+            <span className="kicker">{t('console.stage.task', position)}</span>
+            <h2 className="task-big">{task.prompt}</h2>
+            <button className="btn primary" onClick={start}><Rich text={t('console.stage.start')} tags={{ kbd }} /></button>
+          </div>}
+          {phase === 'running' && !embedded && <div className="stage-card panel">
+            <span className="kicker">{t('console.stage.task', position)}</span>
+            <h2 className="task-big">{task.prompt}</h2>
+            <p className="muted">{t('console.stage.thinkAloud')}</p>
+          </div>}
+          {phase === 'rating' && <div className="stage-card stage-plain"><SeqRating taskNumber={taskIndex + 1} outcome={shownOutcome(lastOutcome)} onDone={rated} /></div>}
+        </div>
+        {/* Its own row under the prototype, so it never covers any of it. */}
         {phase === 'running' && embedded && <div className="task-ribbon"><Rich text={t('console.stage.ribbon', position)} tags={{ b: text => <b>{text}</b>, prompt: () => task.prompt }} /></div>}
-        {phase === 'rating' && <div className="stage-card stage-plain"><SeqRating taskNumber={taskIndex + 1} outcome={outcomeLabel(lastOutcome)} onDone={rated} /></div>}
       </main>
       <aside className="console-panel" aria-label={t('console.panel.label')}>
         <section>
@@ -309,7 +379,7 @@ export function Console({ id, slot }) {
           </form>
           <ul className="console-notes">
             {taskNotes.slice().reverse().map((note, at) => <li key={`${note.t}-${at}`} className={`note note-${note.kind}`}>
-              <span className="mono small">{clock(note.t - (recorderRef.current.session.tasks.find(item => item.id === note.taskId)?.start ?? 0))}</span>
+              <span className="mono small">{noteTime(note)}</span>
               <span className="chip">{kindLabel(note.kind).toUpperCase()}</span>
               <span>{note.kind === 'quote' ? `“${note.text}”` : note.text}</span>
               {note.tags.map(tag => <span key={tag} className="tag">#{tag}</span>)}
@@ -318,6 +388,10 @@ export function Console({ id, slot }) {
           </ul>
         </section>
         <p className="muted small hotkeys"><Rich text={t('console.panel.hotkeys')} tags={{ kbd }} /></p>
+        {/* Last in the panel, so nothing above it moves when it goes away on
+            the click that gives the keys back. The live region stays mounted,
+            so screen readers announce the text when it appears. */}
+        <div role="status">{keysPaused && embedded && <p className="keys-paused"><Rich text={t('console.panel.paused')} tags={{ b: text => <b>{text}</b> }} /></p>}</div>
       </aside>
     </div>
   </div>

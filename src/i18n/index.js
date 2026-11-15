@@ -126,9 +126,11 @@ export const errorText = (t, error) => (error && error.key ? t(error.key, error.
 // Numbers and dates in the reader's conventions. English keeps the
 // browser's own English locale (en-US, en-GB, en-CA…), as the pages did
 // before they had a language switch; Chinese uses zh-CN.
+// A tag Intl rejects (some browsers report 'en-US@posix') falls back to 'en'.
+const validLocale = tag => { try { return Intl.getCanonicalLocales(tag).length > 0 } catch { return false } }
 export function localeFor(lang, languages = browserLanguages()) {
   if (lang === 'zh') return 'zh-CN'
-  return languages.find(tag => /^en(?:-|$)/i.test(String(tag || ''))) || 'en'
+  return languages.find(tag => /^en(?:-|$)/i.test(String(tag || '')) && validLocale(tag)) || 'en'
 }
 export const formatNumber = (lang, value, options) => new Intl.NumberFormat(localeFor(lang), options).format(value)
 // A duration in seconds as words: "30 seconds", "5 minutes", "1 min 30 s".

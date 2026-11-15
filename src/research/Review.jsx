@@ -16,7 +16,12 @@ const oneDecimal = (lang, value) => formatNumber(lang, Number(Number(value).toFi
 // the camera and vision messages are looked up; anything else shows as saved.
 const LOST_REASON_KEY = /^(?:participant\.cameraLost|common\.vision)\.\w+$/
 const lostReason = (t, lost) => (typeof lost.reasonKey === 'string' && LOST_REASON_KEY.test(lost.reasonKey) && t(lost.reasonKey) !== lost.reasonKey ? t(lost.reasonKey) : lost.reason)
+// Every outcome a session file can hold: the participant runtime writes
+// success, self-reported, unverified, skipped and timeout; the moderated
+// console success, partial, failed and skipped.
 const OUTCOME_CLASS = { success: 'ok', 'self-reported': 'ok', partial: 'partial', unverified: 'bad', failed: 'bad', skipped: 'bad', timeout: 'bad' }
+// The timeline's mark for an outcome: partial success is neither ✓ nor ✕.
+const OUTCOME_MARK = { ok: '✓', partial: '½' }
 // Observer note kinds from a moderated session (lab.html console). The keys
 // are the kinds a file may hold; screens show t('study.note.' + kind).
 export const NOTE_KINDS = { note: 'Note', problem: 'Problem', quote: 'Quote', assist: 'Assist', error: 'Error' }
@@ -77,13 +82,14 @@ const fieldsFor = isPage => ({
     && optional(lost => isRecord(lost) && isNumber(lost.t) && optional(isText)(lost.taskId) && optional(isText)(lost.reason))(quality.cameraLost)
     && (quality.gazeEnabled ? isAccuracy : optional(isAccuracy))(quality.accuracy),
   baseline: optional(baseline => isRecord(baseline) && isNumber(baseline.brow) && isNumber(baseline.scale)),
-  tasks: listOf(task => isText(task.id) && isNumber(task.start) && optional(isNumber)(task.end) && optional(isText)(task.outcome) && optional(isText)(task.prompt) && optional(isSeq)(task.seq) && optional(isNumber)(task.ready)),
+  // Only known outcomes: screens look outcomes up by name.
+  tasks: listOf(task => isText(task.id) && isNumber(task.start) && optional(isNumber)(task.end) && optional(outcome => isText(outcome) && Object.hasOwn(OUTCOME_CLASS, outcome))(task.outcome) && optional(isText)(task.prompt) && optional(isSeq)(task.seq) && optional(isNumber)(task.ready)),
   // The score must match the answers, so a hand-edited score is caught.
   sus: optional(sus => isRecord(sus) && Array.isArray(sus.answers) && isNumber(sus.score) && susScore(sus.answers) === sus.score),
   events: listOf(event => isText(event.type) && isNumber(event.t) && optional(isText)(event.taskId) && optional(isNumber)(event.last) && (eventFields(isPage)[event.type]?.(event) ?? true)),
   gaze: optional(listOf(point => isNumber(point.t) && isPage(point.page) && isNumber(point.x) && isNumber(point.y) && optional(isNumber)(point.sx) && optional(isNumber)(point.sy))),
   face: optional(listOf(sample => isNumber(sample.t) && isNumber(sample.brow) && isNumber(sample.scale))),
-  aois: optional(aois => isRecord(aois) && Object.keys(aois).every(isPage) && Object.values(aois).every(listOf(area => isText(area.id) && isRecord(area.rect) && ['x', 'y', 'width', 'height'].every(key => isNumber(area.rect[key]))))),
+  aois: optional(aois => isRecord(aois) && Object.keys(aois).every(isPage) && Object.values(aois).every(listOf(area => isText(area.id) && isRecord(area.rect) && ['x', 'y', 'width', 'height'].every(key => isNumber(area.rect[key])) && optional(isNumber)(area.from) && optional(isNumber)(area.to)))),
   reviews: optional(reviews => isRecord(reviews) && Object.values(reviews).every(review => isRecord(review) && ['open', 'confirmed', 'rejected'].includes(review.status)
     && optional(level => Number.isInteger(level) && level >= 0 && SEVERITY.length > level)(review.severity))),
 })
@@ -172,15 +178,23 @@ function Timeline({ session, analysis, selected, onSelect }) {
   const len = ms => `${(ms / span) * 100}%`
   // Moments are padded by 2 s, so clip them to the tasks' time range.
   const clipped = item => ({ left: pct(Math.max(item.start, analysis.origin)), width: len(Math.min(item.end, analysis.duration) - Math.max(item.start, analysis.origin)) })
+  // Each moment is drawn across the lanes but is one button, in the lane of
+  // its strongest evidence; the copies in the other lanes are for the mouse.
+  const laneOf = candidate => [STRONG, MEDIUM, WEAK].find(strength => candidate.signals.some(signal => signal.strength === strength))
+  const momentLabel = candidate => t('researcher.timeline.moment', { start: clock(candidate.start), end: clock(candidate.end), task: candidate.taskId, confidence: t(`researcher.timeline.confidence.${candidate.confidence}`) })
   const lane = (strength, label) => {
     return <div className="lane"><span>{label}</span><div className="track">
-      {analysis.candidates.map(candidate => <button key={candidate.id} className={`cand ${selected?.id === candidate.id ? 'is-selected' : ''}`} style={clipped(candidate)} onClick={() => onSelect(candidate.id)} aria-label={t('researcher.timeline.moment', { time: clock(candidate.start) })} />)}
+      {analysis.candidates.map(candidate => {
+        const own = laneOf(candidate) === strength
+        return <button key={candidate.id} className={`cand ${selected?.id === candidate.id ? 'is-selected' : ''}`} style={clipped(candidate)} onClick={() => onSelect(candidate.id)}
+          aria-label={own ? momentLabel(candidate) : undefined} aria-pressed={own ? selected?.id === candidate.id : undefined} aria-hidden={own ? undefined : true} tabIndex={own ? undefined : -1} />
+      })}
       {analysis.signals.filter(signal => signal.strength === strength).map((signal, index) => <i key={index} className={`mk ${strength}`} style={{ left: pct(signal.start), width: `max(6px, ${len(signal.end - signal.start)})` }} title={describeSignal(signal, t.lang)} />)}
     </div></div>
   }
   return <div className="timeline">
     <div className="lane"><span>{t('researcher.timeline.tasks')}</span><div className="track">
-      {session.tasks.map(task => <i key={task.id} className={`seg ${OUTCOME_CLASS[task.outcome] || ''}`} style={{ left: pct(task.start), width: len((task.end ?? task.start) - task.start) }}>{task.id} {OUTCOME_CLASS[task.outcome] === 'ok' ? '✓' : '✕'}</i>)}
+      {session.tasks.map(task => <i key={task.id} className={`seg ${OUTCOME_CLASS[task.outcome] || ''}`} style={{ left: pct(task.start), width: len((task.end ?? task.start) - task.start) }}>{task.id} {OUTCOME_MARK[OUTCOME_CLASS[task.outcome]] || '✕'}</i>)}
       {selected && <i className="playhead" style={{ left: pct(selected.start) }} />}
     </div></div>
     {lane(STRONG, t('researcher.timeline.strong'))}
@@ -196,11 +210,15 @@ function NotesList({ session }) {
   const t = useT()
   const notes = session.notes || []
   if (!notes.length) return null
-  // Each task's notes, then those made between tasks.
+  // Each task's notes, then those made between tasks. A note filed under a
+  // task that never started (the session ended on its intro card) shows with
+  // the notes between tasks.
+  const started = new Set(session.tasks.map(task => task.id))
+  const taskOf = note => (started.has(note.taskId) ? note.taskId : null)
   return <section className="notes-list" aria-label={t('researcher.notes.label')}>
-    <span className="kicker">{t('researcher.notes.kicker', { count: notes.length })}</span>
-    {[...session.tasks.map(task => task.id), null].map(taskId => {
-      const own = notes.filter(note => (note.taskId ?? null) === taskId)
+    <h2 className="kicker">{t('researcher.notes.kicker', { count: notes.length })}</h2>
+    {[...started, null].map(taskId => {
+      const own = notes.filter(note => taskOf(note) === taskId)
       if (!own.length) return null
       const task = session.tasks.find(item => item.id === taskId)
       const heading = taskId ? `${taskId} · ${task?.prompt || ''}` : t('researcher.notes.between')
@@ -227,10 +245,10 @@ function SessionView({ session, analysis, reviews, selectedId, onSelect, onRevie
   const lost = quality.cameraLost
   const until = lost ? t('researcher.quality.until', { time: clock(lost.t) }) : ''
 
-  return <div className="review">
+  return <main className="review">
     <section className="stage">
       <div className="quality">
-        <span className="kicker">{t('researcher.quality.kicker')}</span>
+        <h2 className="kicker">{t('researcher.quality.kicker')}</h2>
         {lost && <span className="chip strong">{t('researcher.quality.cameraLostAt', { time: clock(lost.t) })}{lost.taskId ? ` · ${lost.taskId}` : ''}</span>}
         <span className={`chip ${quality.gazeEnabled ? 'live' : ''}`}>{quality.gazeEnabled ? t('researcher.quality.gaze', { degrees: oneDecimal(t.lang, quality.accuracy.meanDegrees), status: until || t('researcher.quality.pass') }) : t('researcher.quality.gazeOff')}</span>
         {facePercent !== null && <span className="chip">{t('researcher.quality.face', { percent: facePercent })}{until && ` · ${until}`}</span>}
@@ -240,7 +258,7 @@ function SessionView({ session, analysis, reviews, selectedId, onSelect, onRevie
         <span className="chip">{t('researcher.quality.noVideo')}</span>
         {session.mode === 'moderated' && <span className="chip">{session.pilot ? t('researcher.quality.moderatedPilot') : t('researcher.quality.moderated')}</span>}
         {rated && <div className="ratings">
-          <span className="kicker">{t('researcher.quality.ratings')}</span>
+          <h3 className="kicker">{t('researcher.quality.ratings')}</h3>
           {session.tasks.map(task => <span key={task.id} className={`chip ${task.seq != null && task.seq < 5 ? 'strong' : ''}`} title={t('researcher.quality.seqTitle')}>{t('researcher.quality.seq', { task: task.id, value: task.seq ?? '–' })}</span>)}
           {session.sus && <span className="chip live" title={t('researcher.quality.susTitle')}>SUS {oneDecimal(t.lang, session.sus.score)} · {susGrade(session.sus.score)}</span>}
           {session.umuxLite && <span className="chip live" title={t('researcher.quality.umuxTitle')}>{t('researcher.quality.umux', { raw: oneDecimal(t.lang, session.umuxLite.raw), sus: oneDecimal(t.lang, session.umuxLite.sus), grade: susGrade(session.umuxLite.sus) })}</span>}
@@ -255,7 +273,7 @@ function SessionView({ session, analysis, reviews, selectedId, onSelect, onRevie
       <NotesList session={session} />
     </section>
     <aside className="sidebar">
-      <div className="sidebar-head"><span className="kicker">{t('researcher.side.kicker')}</span><h3>{t('researcher.side.counts', { flagged: analysis.candidates.length, reviewed })}</h3>
+      <div className="sidebar-head"><h2 className="kicker">{t('researcher.side.kicker')}</h2><h3>{t('researcher.side.counts', { flagged: analysis.candidates.length, reviewed })}</h3>
         {hidden > 0 && <span className="muted small">{t('researcher.side.hidden', { count: hidden })}</span>}</div>
       <div className="cands">
         {analysis.candidates.map(candidate => {
@@ -277,7 +295,7 @@ function SessionView({ session, analysis, reviews, selectedId, onSelect, onRevie
       </div>
       <p className="muted small sidebar-note">{t('researcher.side.note')}</p>
     </aside>
-  </div>
+  </main>
 }
 
 // main.jsx keeps Review mounted while it is hidden, so Back and Forward keep
@@ -366,6 +384,8 @@ export function Review({ initialSession, request = 0, hidden = false, onSave, na
   }
 
   // The value is cleared so that choosing the same file again, after Cancel, still loads it.
+  // With onSave (the Lab) there is no other file to load: reviews are saved
+  // into the study, so a file from elsewhere would be saved there too.
   const picker = <label className="btn ghost file-button" htmlFor="session-file">{session ? t('researcher.review.loadAnother') : t('researcher.review.chooseFile')}<input ref={inputRef} id="session-file" type="file" accept="application/json,.json" onChange={event => { const [file] = event.target.files; event.target.value = ''; if (file) load(file) }} /></label>
 
   if (!session) {
@@ -376,7 +396,7 @@ export function Review({ initialSession, request = 0, hidden = false, onSave, na
   }
 
   return <div className="screen review-screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>{t('researcher.review.title', { participant: session.participant })}</strong><small>{session.study.title} · {t('researcher.review.tasks', { count: session.tasks.length })} · {clock(analysis.duration)}</small></div></div><div className="actions">{nav}{picker}<button className="btn secondary" onClick={exportFile}>{t('researcher.review.export')}</button>{toggle}</div></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><h1>{t('researcher.review.title', { participant: session.participant })}</h1><small>{session.study.title} · {t('researcher.review.tasks', { count: session.tasks.length })} · {clock(analysis.duration)}</small></div></div><div className="actions">{nav}{!onSave && picker}<button className="btn secondary" onClick={exportFile}>{t('researcher.review.export')}</button>{toggle}</div></header>
     {error && <p className="warning banner" role="alert">{errorText(t, error)}</p>}
     {pending && <div className="warning banner actions" role="group" aria-labelledby="replace-note" onKeyDown={event => event.key === 'Escape' && cancelLoad()}>
       <span id="replace-note">{t('researcher.review.pending', { current: session.participant, next: pending.session.participant })}</span>
@@ -384,7 +404,7 @@ export function Review({ initialSession, request = 0, hidden = false, onSave, na
       <button className="btn danger small-btn" onClick={() => commit(pending)}>{t('researcher.review.loadWithout')}</button>
       <button className="btn ghost small-btn" onClick={cancelLoad}>{t('researcher.review.cancel')}</button>
     </div>}
-    <Guard key={loads} fallback={<main className="center-note" role="alert"><span className="kicker">{t('researcher.review.kicker')}</span><h2>{t('researcher.review.failedTitle')}</h2><p className="muted">{t('researcher.review.failedLede')}</p></main>}>
+    <Guard key={loads} fallback={<main className="center-note" role="alert"><span className="kicker">{t('researcher.review.kicker')}</span><h2>{t('researcher.review.failedTitle')}</h2><p className="muted">{onSave ? t('researcher.review.failedLedeSaved') : t('researcher.review.failedLede')}</p></main>}>
       <SessionView session={session} analysis={analysis} reviews={reviews} selectedId={selectedId} onSelect={setSelectedId} onReview={setReview} />
     </Guard>
   </div>

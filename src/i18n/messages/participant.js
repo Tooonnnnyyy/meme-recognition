@@ -11,6 +11,8 @@ export default {
     // Page header and chips shared by several screens.
     studyLine: 'Study · {title} · participant {participant}',
     processedHere: 'PROCESSED ON THIS DEVICE',
+    // A Figma study: the prototype itself comes from Figma.
+    processedFigma: 'PROCESSED HERE + FIGMA',
     cameraOffChip: 'CAMERA OFF',
     startTasks: 'Start the tasks',
     // The runtime's "I'm done" button; the Chinese demo task quotes it.
@@ -21,6 +23,10 @@ export default {
     'loading.kicker': 'Starting the camera',
     'loading.title': 'Loading on-device vision…',
     'loading.hint': 'This takes a few seconds the first time.',
+    // While the browser's own camera prompt is open.
+    'loading.allowTitle': 'Allow the camera in your browser',
+    'loading.allowHint': 'Your browser is asking whether this page may use the camera. Look for its prompt, usually near the address bar.',
+    'loading.skip': 'Continue without camera',
     'camera.stopped': 'The camera stopped, so the rest of the session continues without it.',
     'camera.declined': 'Camera permission was declined, so this session continues without camera signals.',
     'camera.failed': 'The camera could not start ({reason}), so this session continues without camera signals.',
@@ -46,17 +52,35 @@ export default {
     // A participant link that does not decode.
     'badLink.kicker': 'Study link',
     'badLink.title': 'This link does not open a study',
+    'badLink.cause': 'The link may be cut off or changed.',
+    // {reason} is the technical reason, for the participant to pass on.
+    'badLink.detail': 'For the researcher: {reason}',
+    'badLink.ask': 'Ask the researcher who sent it for a new link.',
 
     // Consent.
     'consent.kicker': 'Step 1 of 3 · Consent',
     'consent.title': 'Before you start',
-    'consent.ledeFigma': ({ count }) => `You will try ${count} short ${count === 1 ? 'task' : 'tasks'} on a prototype. Nothing here tests you; we are testing the design. After each task you rate how easy it was, and at the end you answer 10 short questions; both are optional. You can skip a task, or stop and delete your data at any time.`,
-    'consent.ledeSite': ({ count }) => `You will try ${count} short ${count === 1 ? 'task' : 'tasks'} on a website. Nothing here tests you; we are testing the website. After each task you rate how easy it was, and at the end you answer 10 short questions; both are optional. You can skip a task, or stop and delete your data at any time.`,
+    // {ask} is one of consent.ask.* (what the study asks), or empty.
+    'consent.ledeFigma': ({ count, ask }) => [`You will try ${count} short ${count === 1 ? 'task' : 'tasks'} on a prototype. Nothing here tests you; we are testing the design.`, ask, 'You can skip a task, or stop and delete your data at any time.'].filter(Boolean).join(' '),
+    'consent.ledeSite': ({ count, ask }) => [`You will try ${count} short ${count === 1 ? 'task' : 'tasks'} on a website. Nothing here tests you; we are testing the website.`, ask, 'You can skip a task, or stop and delete your data at any time.'].filter(Boolean).join(' '),
+    'consent.ask.seqSus': 'After each task you rate how easy it was, and at the end you answer 10 short questions; both are optional.',
+    'consent.ask.seqUmux': 'After each task you rate how easy it was, and at the end you answer 2 short questions; both are optional.',
+    'consent.ask.seq': 'After each task you rate how easy it was; this is optional.',
+    'consent.ask.sus': 'At the end you answer 10 short questions; they are optional.',
+    'consent.ask.umux': 'At the end you answer 2 short questions; they are optional.',
     'consent.recordsIcon': 'REC',
     'consent.recordsTitle': 'What this session records',
     'consent.recordsFigma': 'Where you click on the prototype, whether it responded, and the screens you see.',
     'consent.recordsSite': 'Where you click and the text or label of what you click, such as a button or link. The pages you visit and how far you scroll. Which form controls you change or move to, and the times you move the mouse or press keys, but never which keys or what you type into fields.',
-    'consent.records': '{what} With the camera on: an estimate of where on the screen you look, many times a second, and facial movement such as brow lowering, as numbers. Your answers to the ratings and the final questions. We never label emotions.',
+    // {answers} is one of consent.answers.*, or empty.
+    'consent.records': ({ what, answers }) => [what, 'With the camera on: an estimate of where on the screen you look, many times a second, and facial movement such as brow lowering and how close you lean to the screen, as numbers.', answers, 'We never label emotions.'].filter(Boolean).join(' '),
+    'consent.answers.both': 'Your answers to the ratings and the final questions.',
+    'consent.answers.ratings': 'Your answers to the ratings.',
+    'consent.answers.final': 'Your answers to the final questions.',
+    // Figma studies only.
+    'consent.figmaIcon': 'EXT',
+    'consent.figmaTitle': 'Shown by Figma',
+    'consent.figma': 'The prototype is shown by Figma (figma.com). Figma receives your IP address and what you do in the prototype, under <link>Figma’s privacy policy</link>. You don’t need a Figma account. If this browser is signed in to Figma, Figma can also link the visit to that account.',
     'consent.localIcon': 'LOC',
     'consent.localTitle': 'What never leaves this computer',
     'consent.local': 'Camera video and any image of your face. Analysis runs in this browser tab, and the camera stops when you finish.',
@@ -97,12 +121,11 @@ export default {
     'calibration.lookingForFace': 'LOOKING FOR YOUR FACE',
     'calibration.skip': 'Skip gaze and continue',
 
-    // Task outcomes as the participant sees them.
-    'outcome.success': 'Completed',
-    'outcome.self-reported': 'Done (self-reported)',
-    'outcome.unverified': 'Stopped before the goal',
+    // How a task ended, as the participant sees it: neutral, never a pass or
+    // a fail (TaskRunner.jsx SHOWN_OUTCOME).
+    'outcome.finished': 'Finished',
     'outcome.skipped': 'Skipped',
-    'outcome.timeout': 'Ran out of time',
+    'outcome.timeout': 'Time ran out',
 
     // The task runner.
     'runner.chip': 'TASK {n} / {total}',
@@ -111,10 +134,12 @@ export default {
     'runner.frameFigma': 'Prototype being tested',
     'runner.frameSite': 'Website being tested',
     'runner.kicker': 'Task {n} of {total}',
-    'runner.introFigma': ({ minutes }) => `Take your time and use the prototype as you normally would. You have up to ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`,
-    'runner.introSite': ({ minutes }) => `Take your time and use the website as you normally would. You have up to ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`,
+    // {duration} is the time limit as words (durationText): "30 seconds", "1 min 30 s".
+    'runner.introFigma': 'Take your time and use the prototype as you normally would. You have up to {duration}.',
+    'runner.introSite': 'Take your time and use the website as you normally would. You have up to {duration}.',
     'runner.start': 'Start task {n}',
     'runner.local': 'LOCAL',
+    'runner.localFigma': 'LOCAL + FIGMA',
     'runner.cameraStopped': 'CAMERA STOPPED',
     'runner.cameraOn': 'camera on',
     'runner.gazeOn': 'gaze on',
@@ -123,6 +148,7 @@ export default {
     'runner.cameraOff': 'camera off',
     'runner.deleteAll': 'Delete everything',
     'runner.cancel': 'Cancel',
+    'runner.cancelDelete': 'Cancel deleting, keep my data',
     'runner.stop': 'Stop and delete',
 
     // Finished.
@@ -140,6 +166,12 @@ export default {
     'finished.review': 'Review this session (researcher)',
     'finished.delete': 'Delete my data',
     'finished.savedHint': 'The file is in your downloads folder. If you delete your data here, delete that file too.',
+    // Where to send the file, after the download: <b> marks the name and
+    // contact the researcher typed.
+    'finished.sendBoth': 'Now send this file to <b>{researcher}</b> at <b>{contact}</b>.',
+    'finished.sendName': 'Now send this file to <b>{researcher}</b>.',
+    'finished.sendContact': 'Now send this file to <b>{contact}</b>.',
+    'finished.sendSender': 'Now send this file to the person who sent you the link.',
     // A list: "a, b and c".
     'list.comma': ', ',
     'list.and': '{rest} and {last}',
@@ -152,6 +184,8 @@ export default {
     'seq.easy': 'Very easy',
     'seq.continue': 'Continue',
     'seq.skip': 'Skip this question',
+    // The accessible name of an end of a 1–7 scale: "1, Very difficult".
+    'scale.end': '{n}, {label}',
 
     // The questionnaire after the last task.
     'post.title': 'How was it overall?',
@@ -188,6 +222,7 @@ export default {
   zh: {
     studyLine: '研究 · {title} · 参与者 {participant}',
     processedHere: '在本设备上处理',
+    processedFigma: '在本设备上处理 + Figma',
     cameraOffChip: '摄像头已关闭',
     startTasks: '开始任务',
     done: '我完成了',
@@ -196,6 +231,9 @@ export default {
     'loading.kicker': '正在启动摄像头',
     'loading.title': '正在加载设备端视觉分析……',
     'loading.hint': '第一次加载需要几秒钟。',
+    'loading.allowTitle': '请在浏览器中允许使用摄像头',
+    'loading.allowHint': '浏览器正在询问这个页面能否使用摄像头。请留意它的提示，通常在地址栏附近。',
+    'loading.skip': '不使用摄像头，继续',
     'camera.stopped': '摄像头已停止，本次测试接下来会在没有摄像头的情况下继续。',
     'camera.declined': '你没有允许使用摄像头，本次测试会在没有摄像头信号的情况下继续。',
     'camera.failed': '摄像头无法启动（{reason}），本次测试会在没有摄像头信号的情况下继续。',
@@ -217,16 +255,30 @@ export default {
 
     'badLink.kicker': '研究链接',
     'badLink.title': '这个链接无法打开研究',
+    'badLink.cause': '链接可能不完整，或者被改动过。',
+    'badLink.detail': '供研究者参考：{reason}',
+    'badLink.ask': '请向发给你链接的研究者索取新的链接。',
 
     'consent.kicker': '第1步，共3步 · 知情同意',
     'consent.title': '开始之前',
-    'consent.ledeFigma': '你将在一个原型上尝试完成{count}个简短的任务。这不是在测试你，我们测试的是设计。每个任务结束后，你可以评一评它有多容易；最后还有10道简短的问题。评分和问题都可以不答。你可以跳过任何任务，也可以随时停止并删除你的数据。',
-    'consent.ledeSite': '你将在一个网站上尝试完成{count}个简短的任务。这不是在测试你，我们测试的是网站。每个任务结束后，你可以评一评它有多容易；最后还有10道简短的问题。评分和问题都可以不答。你可以跳过任何任务，也可以随时停止并删除你的数据。',
+    'consent.ledeFigma': '你将在一个原型上尝试完成{count}个简短的任务。这不是在测试你，我们测试的是设计。{ask}你可以跳过任何任务，也可以随时停止并删除你的数据。',
+    'consent.ledeSite': '你将在一个网站上尝试完成{count}个简短的任务。这不是在测试你，我们测试的是网站。{ask}你可以跳过任何任务，也可以随时停止并删除你的数据。',
+    'consent.ask.seqSus': '每个任务结束后，你可以评一评它有多容易；最后还有10道简短的问题。评分和问题都可以不答。',
+    'consent.ask.seqUmux': '每个任务结束后，你可以评一评它有多容易；最后还有2道简短的问题。评分和问题都可以不答。',
+    'consent.ask.seq': '每个任务结束后，你可以评一评它有多容易。评分可以不答。',
+    'consent.ask.sus': '最后还有10道简短的问题，可以不答。',
+    'consent.ask.umux': '最后还有2道简短的问题，可以不答。',
     'consent.recordsIcon': '记录',
     'consent.recordsTitle': '这次测试会记录什么',
     'consent.recordsFigma': '你在原型上点击的位置、原型是否有响应，以及你看到的画面。',
     'consent.recordsSite': '你点击的位置，以及所点内容的文字或标签，例如某个按钮或链接；你访问的页面和滚动的距离；你更改或切换到了哪些表单控件，以及你移动鼠标或按键的时间，但绝不会记录你按了哪些键，也不会记录你在输入框里输入的内容。',
-    'consent.records': '{what}开启摄像头时：每秒多次估计你看向屏幕的哪个位置，以及面部动作（例如皱眉），都只记录为数字。此外还会记录你对评分和最后几道问题的回答。我们不会识别或标注你的情绪。',
+    'consent.records': '{what}开启摄像头时：每秒多次估计你看向屏幕的哪个位置，以及面部动作（例如皱眉）和你向屏幕靠近的程度，都只记录为数字。{answers}我们不会识别或标注你的情绪。',
+    'consent.answers.both': '此外还会记录你对评分和最后几道问题的回答。',
+    'consent.answers.ratings': '此外还会记录你的评分。',
+    'consent.answers.final': '此外还会记录你对最后几道问题的回答。',
+    'consent.figmaIcon': '外部',
+    'consent.figmaTitle': '由 Figma 展示',
+    'consent.figma': '原型由 Figma（figma.com）展示。Figma 会收到你的 IP 地址和你在原型中的操作，并按照 <link>Figma 的隐私政策</link>处理。你不需要 Figma 账号。如果这个浏览器登录了 Figma，Figma 还能把这次访问和该账号关联起来。',
     'consent.localIcon': '本地',
     'consent.localTitle': '哪些内容绝不会离开这台电脑',
     'consent.local': '摄像头视频，以及任何你面部的图像。分析就在这个浏览器标签页里进行，你完成后摄像头就会关闭。',
@@ -266,11 +318,9 @@ export default {
     'calibration.lookingForFace': '正在寻找你的面部',
     'calibration.skip': '跳过视线校准并继续',
 
-    'outcome.success': '已完成',
-    'outcome.self-reported': '已完成（自述）',
-    'outcome.unverified': '未到达目标就结束了',
+    'outcome.finished': '已结束',
     'outcome.skipped': '已跳过',
-    'outcome.timeout': '时间用完了',
+    'outcome.timeout': '时间到了',
 
     'runner.chip': '任务{n}/{total}',
     'runner.thinkAloud': '你可以边做边说出自己的想法。完成后，点击“我完成了”。',
@@ -278,10 +328,11 @@ export default {
     'runner.frameFigma': '正在测试的原型',
     'runner.frameSite': '正在测试的网站',
     'runner.kicker': '第{n}个任务，共{total}个',
-    'runner.introFigma': '慢慢来，像平时一样使用这个原型。你最多有{minutes}分钟。',
-    'runner.introSite': '慢慢来，像平时一样使用这个网站。你最多有{minutes}分钟。',
+    'runner.introFigma': '慢慢来，像平时一样使用这个原型。你最多有{duration}。',
+    'runner.introSite': '慢慢来，像平时一样使用这个网站。你最多有{duration}。',
     'runner.start': '开始任务{n}',
     'runner.local': '本地',
+    'runner.localFigma': '本地 + Figma',
     'runner.cameraStopped': '摄像头已停止',
     'runner.cameraOn': '摄像头已开启',
     'runner.gazeOn': '视线追踪已开启',
@@ -290,6 +341,7 @@ export default {
     'runner.cameraOff': '摄像头已关闭',
     'runner.deleteAll': '全部删除',
     'runner.cancel': '取消',
+    'runner.cancelDelete': '取消删除，保留我的数据',
     'runner.stop': '停止并删除',
 
     'finished.kicker': '第3步，共3步 · 完成',
@@ -306,6 +358,10 @@ export default {
     'finished.review': '审阅本场次（供研究者使用）',
     'finished.delete': '删除我的数据',
     'finished.savedHint': '文件已保存在你的下载文件夹里。如果你在这里删除了数据，也请删除那个文件。',
+    'finished.sendBoth': '现在请把这个文件发给<b>{researcher}</b>，联系方式：<b>{contact}</b>。',
+    'finished.sendName': '现在请把这个文件发给<b>{researcher}</b>。',
+    'finished.sendContact': '现在请把这个文件发送到 <b>{contact}</b>。',
+    'finished.sendSender': '现在请把这个文件发给把链接发给你的人。',
     'list.comma': '、',
     'list.and': '{rest}以及{last}',
 
@@ -316,6 +372,7 @@ export default {
     'seq.easy': '非常容易',
     'seq.continue': '继续',
     'seq.skip': '跳过这个问题',
+    'scale.end': '{n}，{label}',
 
     'post.title': '总体感觉如何？',
     'sus.kicker': '最后一步 · 10道题 · 可选',

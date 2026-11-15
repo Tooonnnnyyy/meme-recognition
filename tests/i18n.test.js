@@ -100,3 +100,11 @@ test('durations read as words in both languages', async () => {
   assert.equal(durationText('zh', 90), '1分30秒')
   assert.equal(durationText('zh', 300), '5分钟')
 })
+
+test('a browser language tag Intl rejects falls back to plain English', async () => {
+  const { localeFor } = await import('../src/i18n/index.js')
+  assert.equal(localeFor('en', ['en-US@posix']), 'en')
+  assert.equal(localeFor('en', ['en-US@posix', 'en-GB']), 'en-GB')
+  assert.equal(localeFor('en', ['en-CA']), 'en-CA')
+  assert.equal(localeFor('zh', ['en-CA']), 'zh-CN')
+})

@@ -9,9 +9,9 @@ import { TaskRunner, Finished } from './TaskRunner'
 import { Review } from './Review'
 import { Setup } from './Setup'
 import { Report } from './Report'
-import { SusForm } from './Questionnaires'
-import { decodeStudy } from './studyLink'
-import { TextError, currentLang, errorText, isLang, pinLang, pinnedLang, translate, translator } from '../i18n/index.js'
+import { SusForm, UmuxLiteForm } from './Questionnaires'
+import { decodeStudy, demoOptions, runtimeContact, runtimeQuestionnaire } from './studyLink'
+import { TextError, currentLang, errorText, pinLang, pinnedLang, translate, translator } from '../i18n/index.js'
 import { useT } from '../i18n/react.jsx'
 import './research.css'
 
@@ -66,18 +66,20 @@ function statusText(t, status) {
   return t(status.key, status.vars)
 }
 
-// Researcher screens are hash routes; Review stays mounted once opened.
+// Researcher screens are hash routes; each stays mounted, hidden, once opened.
 const SCREENS = { '#review': 'review', '#setup': 'setup', '#report': 'report' }
 const RESEARCHER = Object.values(SCREENS)
 // A participant link carries its study (?study=...); without one the demo
-// study runs, in the language the link names (?lang=, from the Lab's demo
-// study) or else the language of the visit.
+// study runs, with the options of the Lab's demo link (demoLink): the
+// language (?lang=, else the language of the visit), the questionnaires and
+// who to send the results file to. An empty ?study= is a broken link, not
+// the demo.
+const DEMO = demoOptions(location.search)
+const demoStudy = lang => ({ ...demoStudyIn(lang), questionnaire: DEMO.questionnaire, ...(DEMO.contact ? { contact: DEMO.contact } : {}) })
 function linkedStudy() {
   const params = new URLSearchParams(location.search)
-  const param = params.get('study')
-  const lang = params.get('lang')
-  if (!param) return { study: demoStudyIn(isLang(lang) ? lang : currentLang()), demo: true }
-  try { return { study: decodeStudy(param) } } catch (error) { return { error } }
+  if (!params.has('study')) return { study: demoStudy(DEMO.lang || currentLang()), demo: true }
+  try { return { study: decodeStudy(params.get('study')) } } catch (error) { return { error } }
 }
 const LINKED = linkedStudy()
 const STUDY = LINKED.study
@@ -86,8 +88,12 @@ const STUDY = LINKED.study
 // Researcher screens keep the researcher's own choice.
 if (STUDY && !SCREENS[location.hash]) pinLang(STUDY.lang || currentLang())
 const firstStep = () => SCREENS[location.hash] || (LINKED.error ? 'bad-link' : 'consent')
+// A broken link shows checkStudy's reason only as a detail for the
+// researcher; a damaged link's reason says nothing more than the screen.
+const badLinkDetail = error => Boolean(error) && error.key !== 'researcher.link.damaged'
 
-// Participant flow: consent → calibration (optional) → tasks → finished.
+// Participant flow: consent → calibration (optional) → tasks → post-test
+// questionnaire (the study's: SUS, UMUX-Lite or none) → finished.
 // Researchers open research.html#review to load and review session files, and
 // research.html#setup to make a Figma study link.
 function App() {
@@ -104,6 +110,10 @@ function App() {
   // The study of this session: the demo is worded again in the visit's
   // language when the session starts.
   const studyRef = useRef(STUDY)
+  // While the browser asks for the camera; a newer attempt (or Continue
+  // without camera) makes an older one stop what it started.
+  const [askingCamera, setAskingCamera] = useState(false)
+  const attemptRef = useRef(0)
   const [cameraOn, setCameraOn] = useState(false)
   const [cameraLost, setCameraLost] = useState(false)
   const [gazeModel, setGazeModel] = useState(null)
@@ -112,9 +122,10 @@ function App() {
   const stepRef = useRef(step)
   stepRef.current = step
   const backTo = useRef(LINKED.error ? 'bad-link' : 'consent')
-  // Review stays mounted, hidden, once opened, so unexported reviews survive
-  // Back and Forward. Deleting the data unmounts it.
-  const [reviewKept, setReviewKept] = useState(step === 'review')
+  // Researcher screens stay mounted, hidden, once opened, so unexported
+  // reviews, a half-made study link and a loaded report survive Back, Forward
+  // and the navigation. Deleting the data unmounts Review.
+  const [kept, setKept] = useState(() => RESEARCHER.filter(screen => screen === step))
   const [reviewRequest, setReviewRequest] = useState(0)
 
   // Leaving for a researcher screen releases the participant's language, and
@@ -138,7 +149,7 @@ function App() {
         if (RECORDING.includes(current)) history.replaceState(null, '', location.pathname + location.search)
         else if (current !== target) {
           if (!RESEARCHER.includes(current)) backTo.current = current
-          if (target === 'review') setReviewKept(true)
+          setKept(list => (list.includes(target) ? list : [...list, target]))
           setStep(target)
         }
       } else if (RESEARCHER.includes(current)) setStep(backTo.current)
@@ -155,6 +166,10 @@ function App() {
     addEventListener('beforeunload', warn)
     return () => removeEventListener('beforeunload', warn)
   }, [unsaved])
+
+  // Each screen starts at the top: the consent page is longer than a phone
+  // screen, and its scroll would otherwise hide the task bar.
+  useLayoutEffect(() => { window.scrollTo(0, 0) }, [step])
 
   const subscribe = useCallback(listener => {
     listenersRef.current.add(listener)
@@ -191,21 +206,32 @@ function App() {
   }
 
   const begin = async withCamera => {
-    if (LINKED.demo) studyRef.current = demoStudyIn(currentLang())
+    if (LINKED.demo) studyRef.current = demoStudy(currentLang())
     recorderRef.current = createRecorder({ study: studyRef.current, participant })
     if (!withCamera) { setStep('tasks'); return }
+    const attempt = ++attemptRef.current
+    const current = () => attemptRef.current === attempt
+    // "Allow the camera" shows only when the browser takes a moment to answer,
+    // which means it is asking; a permission already given answers at once.
+    const asking = setTimeout(() => { if (current()) setAskingCamera(true) }, 400)
     setStep('loading')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 960, height: 720, facingMode: 'user' }, audio: false })
+      clearTimeout(asking)
+      if (!current()) { stream.getTracks().forEach(track => track.stop()); return }
+      setAskingCamera(false)
       streamRef.current = stream
       videoRef.current.srcObject = stream
       await videoRef.current.play()
-      engineRef.current = await createVisionEngine(videoRef.current, {
+      if (!current()) return
+      const engine = await createVisionEngine(videoRef.current, {
         models: { face: true },
-        onStatus: text => setStatus({ text }),
-        onFrame: frame => listenersRef.current.forEach(listener => listener(frame)),
-        onError: error => loseCamera(errorText(translator('en'), error), error?.key),
+        onStatus: text => { if (current()) setStatus({ text }) },
+        onFrame: frame => { if (current()) listenersRef.current.forEach(listener => listener(frame)) },
+        onError: error => { if (current()) loseCamera(errorText(translator('en'), error), error?.key) },
       })
+      if (!current()) { engine.stop(); return }
+      engineRef.current = engine
       const [track] = stream.getVideoTracks()
       if (track.readyState === 'ended') throw new TextError('participant.camera.disconnected')
       unwatchRef.current = watchTrack(track, loseCamera)
@@ -213,10 +239,23 @@ function App() {
       setStatus(null)
       setStep('calibrate')
     } catch (error) {
+      clearTimeout(asking)
+      if (!current()) return
       stopCamera()
+      setAskingCamera(false)
       setStatus(error.name === 'NotAllowedError' ? { key: 'participant.camera.declined' } : { error })
       setStep('tasks')
     }
+  }
+
+  // Continue without camera, from the loading step: whatever the browser or
+  // the vision engine answers later is stopped and ignored.
+  const skipCamera = () => {
+    attemptRef.current += 1
+    stopCamera()
+    setAskingCamera(false)
+    setStatus(null)
+    setStep('tasks')
   }
 
   const calibrated = ({ model, accuracy, passed, baseline }) => {
@@ -230,11 +269,19 @@ function App() {
     setStep('tasks')
   }
 
+  // The finish screen: from here the session counts as finished
+  // (sessionStatus.isFinished), before the file can be downloaded.
+  const toFinished = () => {
+    if (recorderRef.current) recorderRef.current.session.finishedAt = new Date().toISOString()
+    setStep('finished')
+  }
+
   const finish = () => {
     stopCamera()
     recorderRef.current.stop()
     setSession(recorderRef.current.session)
-    setStep('sus')
+    if (runtimeQuestionnaire(studyRef.current).post === 'none') toFinished()
+    else setStep('post')
   }
 
   const discard = () => {
@@ -242,29 +289,31 @@ function App() {
     recorderRef.current?.stop()
     recorderRef.current = null
     setSession(null)
-    setReviewKept(false)
+    setKept(list => list.filter(screen => screen !== 'review'))
     setStep('deleted')
   }
 
   // On the consent screen the demo follows a language switch at once (its
   // title and task count are in the header); begin() words it again for the
   // session.
-  const consentDemo = useMemo(() => (LINKED.demo ? demoStudyIn(t.lang) : null), [t.lang])
+  const consentDemo = useMemo(() => (LINKED.demo ? demoStudy(t.lang) : null), [t.lang])
   const study = step === 'consent' && consentDemo ? consentDemo : studyRef.current
   const notice = statusText(t, status)
+  const { post } = runtimeQuestionnaire(studyRef.current)
   return <div className={`copilot step-${step}`}>
     <video ref={videoRef} className={`camera-feed ${step === 'calibrate' ? 'is-visible' : ''}`} muted playsInline />
     {step === 'consent' && <Consent study={study} participant={participant} onBegin={begin} />}
-    {step === 'loading' && <div className="center-note"><span className="kicker">{t('participant.loading.kicker')}</span><h2>{t('participant.loading.title')}</h2><p className="muted">{notice || t('participant.loading.hint')}</p></div>}
+    {step === 'loading' && <div className="center-note"><span className="kicker">{t('participant.loading.kicker')}</span><h2>{t(askingCamera ? 'participant.loading.allowTitle' : 'participant.loading.title')}</h2><p className="muted">{askingCamera ? t('participant.loading.allowHint') : notice || t('participant.loading.hint')}</p><button className="btn ghost" onClick={skipCamera}>{t('participant.loading.skip')}</button></div>}
     {step === 'calibrate' && <Calibration subscribe={subscribe} aspect={aspect} onDone={calibrated} />}
     {step === 'tasks' && <TaskRunner study={study} recorder={recorderRef.current} gazeModel={gazeModel} subscribe={subscribe} aspect={aspect} cameraOn={cameraOn} cameraLost={cameraLost} notice={notice} onFinish={finish} onStop={discard} />}
-    {step === 'sus' && <SusForm study={study} participant={participant} onDone={answers => { recorderRef.current?.setSus(answers, currentLang()); setStep('finished') }} />}
-    {step === 'finished' && <Finished session={session} saved={saved} onSaved={() => setSaved(true)} onReview={() => { setReviewRequest(count => count + 1); location.hash = 'review' }} onDelete={discard} />}
+    {step === 'post' && post === 'umux-lite' && <UmuxLiteForm study={study} participant={participant} onDone={answers => { recorderRef.current?.setUmuxLite(answers, currentLang()); toFinished() }} />}
+    {step === 'post' && post !== 'umux-lite' && <SusForm study={study} participant={participant} onDone={answers => { recorderRef.current?.setSus(answers, currentLang()); toFinished() }} />}
+    {step === 'finished' && <Finished session={session} contact={runtimeContact(studyRef.current)} saved={saved} onSaved={() => setSaved(true)} onReview={() => { setReviewRequest(count => count + 1); location.hash = 'review' }} onDelete={discard} />}
     {step === 'deleted' && <div className="center-note"><span className="kicker">{t('participant.deleted.kicker')}</span><h2>{saved ? t('participant.deleted.titleSaved') : t('participant.deleted.title')}</h2><p className="muted">{saved ? t('participant.deleted.saved') : t('participant.deleted.unsaved')}</p></div>}
-    {step === 'setup' && <Setup />}
-    {step === 'report' && <Report />}
-    {step === 'bad-link' && <div className="center-note"><span className="kicker">{t('participant.badLink.kicker')}</span><h2>{t('participant.badLink.title')}</h2><p className="muted">{errorText(t, LINKED.error)}</p></div>}
-    {reviewKept && <div hidden={step !== 'review'}><Review initialSession={session} request={reviewRequest} hidden={step !== 'review'} /></div>}
+    {step === 'bad-link' && <div className="center-note"><span className="kicker">{t('participant.badLink.kicker')}</span><h2>{t('participant.badLink.title')}</h2><p className="muted">{t('participant.badLink.cause')}</p>{badLinkDetail(LINKED.error) && <p className="muted small">{t('participant.badLink.detail', { reason: errorText(t, LINKED.error) })}</p>}<p><b>{t('participant.badLink.ask')}</b></p></div>}
+    {kept.includes('setup') && <div hidden={step !== 'setup'}><Setup hidden={step !== 'setup'} /></div>}
+    {kept.includes('report') && <div hidden={step !== 'report'}><Report hidden={step !== 'report'} /></div>}
+    {kept.includes('review') && <div hidden={step !== 'review'}><Review initialSession={session} request={reviewRequest} hidden={step !== 'review'} /></div>}
   </div>
 }
 

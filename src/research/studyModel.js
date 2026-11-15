@@ -58,7 +58,9 @@ export function newStudy(overrides = {}) {
 
 // The demo shop as a ready-made study, so a first-time researcher can try the
 // whole flow in a minute. lang is the participants' language; the demo task
-// wording comes in English and Chinese.
+// wording comes in English and Chinese. The refund task has no success page;
+// its prompt leaves out the runtime's "I'm done" button, which a moderated
+// console does not have, so it reads right whichever method is chosen.
 export const demoStudy = (lang = 'en') => {
   const language = langOf(lang)
   const t = (key, vars) => translate(language, `study.demo.${key}`, vars)
@@ -66,7 +68,7 @@ export const demoStudy = (lang = 'en') => {
     lang: language,
     title: t('title'),
     source: { kind: 'demo' },
-    tasks: demoTasks(language).map(task => ({ id: task.id, prompt: task.prompt, success: task.successPage ? t('successPage', { page: task.successPage }) : t('successRefund'), limitSec: task.limitSec, start: task.start, successPage: task.successPage })),
+    tasks: demoTasks(language).map(task => ({ id: task.id, prompt: task.successPage ? task.prompt : t('refundPrompt'), success: task.successPage ? t('successPage', { page: task.successPage }) : t('successRefund'), limitSec: task.limitSec, start: task.start, successPage: task.successPage })),
     consent: { ...newStudy({ lang: language }).consent, purpose: t('purpose') },
   })
 }
@@ -90,6 +92,8 @@ export function studyProblems(study, lang = 'en') {
     const { figma } = study.source
     if (!figma || !isFileKey(figma.fileKey)) problems.push(t('figmaLink'))
     else if (study.method === 'unmoderated' && !isClientId(figma.clientId)) problems.push(t('figmaClientId'))
+    // Optional when moderating, but a typed one must be a real client ID.
+    else if (figma.clientId && !isClientId(figma.clientId)) problems.push(t('figmaClientIdFormat'))
   }
   if (study.method === 'unmoderated' && study.source.kind === 'none') problems.push(t('unmoderatedSource'))
   return problems
@@ -132,7 +136,7 @@ export function toRuntimeStudy(study, order = study.tasks.map(task => task.id)) 
   if (study.source.kind === 'figma') {
     const { figma } = study.source
     // No client ID is null, not '': session files are checked with isClientId.
-    return { id: study.id, kind: 'figma', ...shared, title: study.title.trim(), figma: { fileKey: figma.fileKey, name: figma.name, startNodeId: figma.startNodeId || null, clientId: figma.clientId || null }, tasks }
+    return { id: study.id, kind: 'figma', ...shared, title: study.title.trim(), figma: { fileKey: figma.fileKey, name: figma.name, startNodeId: figma.startNodeId || null, clientId: isClientId(figma.clientId) ? figma.clientId : null }, tasks }
   }
   if (study.source.kind === 'demo') return { id: study.id, ...shared, title: study.title.trim(), siteBase: DEMO_STUDY.siteBase, tasks: tasks.map(task => ({ ...task, start: task.start || 'orders.html' })) }
   return { id: study.id, kind: 'observed', ...shared, title: study.title.trim(), tasks }
@@ -147,18 +151,24 @@ const ours = (lang, key, value) => (LANGS.some(other => value === translate(othe
 
 // A consent form draft with the elements TCPS 2 (Article 3.2) asks for. It is
 // a starting point: the researcher adapts it to their ethics board's template.
-// It is written in the participants' language; what the researcher typed is
-// used as it is.
+// What only the researcher knows (funder, conflicts of interest,
+// commercialization, limits of confidentiality) is left as a [hint] to fill
+// in. It is written in the participants' language; what the researcher typed
+// is used as it is.
 export function consentDocument(study, lang = study.lang || 'en') {
   const t = (key, vars) => translate(lang, `study.${key}`, vars)
   const hint = key => `[${t(key)}]`
   const field = (key, value) => t('doc.field', { label: t(`consent.${key}`), value: typed(value) || hint(`consent.${key}Hint`) })
   const c = study.consent
+  const unmoderated = study.method === 'unmoderated'
+  const figma = study.source.kind === 'figma'
   const minutes = Number(c.durationMin) || 30
   const tasks = study.tasks.length
   const post = study.questionnaire.post === 'sus' ? t('consent.postSus') : study.questionnaire.post === 'umux-lite' ? t('consent.postUmux') : null
-  const product = t(study.source.kind === 'figma' ? 'consent.productFigma' : study.source.kind === 'demo' ? 'consent.productDemo' : 'consent.productOther')
-  const recorded = t(study.source.kind === 'none' ? 'consent.recordedObserved' : 'consent.recordedEmbedded')
+  const product = t(figma ? 'consent.productFigma' : study.source.kind === 'demo' ? 'consent.productDemo' : 'consent.productOther')
+  // An unmoderated session has no moderator taking notes, and the participant
+  // runtime offers the webcam (on unless the participant turns it off).
+  const recorded = t(study.source.kind === 'none' ? 'consent.recordedObserved' : unmoderated ? 'consent.recordedLink' : 'consent.recordedEmbedded')
   const purpose = typed(ours(lang, 'study.demo.purpose', c.purpose))
   const board = typed(c.ethicsBoard) || hint('consent.boardHint')
   const file = typed(c.ethicsNumber)
@@ -173,6 +183,7 @@ ${field('researcher', c.researcher)}
 ${field('institution', c.institution)}
 ${field('contact', c.contact)}
 ${field('supervisor', c.supervisor)}
+${field('funder', c.funder)}
 
 ## ${t('consent.whyHeading')}
 ${t('consent.purpose', { purpose: purpose || hint('consent.purposeHint') })}
@@ -183,7 +194,7 @@ ${study.questionnaire.seq ? `- ${t('consent.seq')}\n` : ''}${post ? `- ${t('cons
 
 ## ${t('consent.recordedHeading')}
 - ${t('consent.recorded', { what: recorded })}
-- ${t('consent.noMedia')}
+${unmoderated ? `- ${t('consent.camera')}\n` : ''}- ${t('consent.noMedia')}
 - ${t('consent.code')}
 
 ## ${t('consent.risksHeading')}
@@ -192,18 +203,29 @@ ${t('consent.risks')}
 ## ${t('consent.voluntaryHeading')}
 ${t('consent.voluntary')}
 
+${t('consent.newInfo')}
+
 ## ${t('consent.protectedHeading')}
-- ${t(study.method === 'unmoderated' ? 'consent.storedOrFile' : 'consent.stored')}
-${field('retention', ours(lang, 'study.retentionDefault', c.retention))}
+- ${t(unmoderated ? 'consent.storedOrFile' : 'consent.stored')}
+- ${t('consent.access')}
+${figma ? `- ${t('consent.figma')}\n` : ''}${field('retention', ours(lang, 'study.retentionDefault', c.retention))}
+${field('confidentiality', c.confidentiality)}
 - ${t('consent.reporting')}
 
 ## ${t('consent.compensationHeading')}
 ${typed(c.compensation) || hint('consent.compensationHint')}
+${hint('consent.injuryHint')}
+
+## ${t('consent.interestsHeading')}
+${field('conflicts', c.conflicts)}
+${field('commercialization', c.commercialization)}
 
 ## ${t('consent.questionsHeading')}
 ${file ? t('consent.questionsFile', { board, file }) : t('consent.questions', { board })}
 
 ## ${t('consent.consentHeading')}
+${t('consent.rights')}
+
 - [ ] ${t('consent.agreeRead')}
 - [ ] ${t('consent.agreeTakePart')}
 - [ ] ${t('consent.agreeStop')}
@@ -213,28 +235,38 @@ ${t('consent.signLine')}
 }
 
 // What happens to the data, for the ethics application's data management
-// part, in the same language as the consent form.
+// part, in the same language as the consent form. An unmoderated session has
+// no moderator notes, and the participant runtime may use the webcam. In a
+// Figma study the prototype comes from Figma, which therefore receives the
+// browser's address and what is done in the prototype.
 export function dataFlowStatement(study, lang = study.lang || 'en') {
   const t = (key, vars) => translate(lang, `study.data.${key}`, vars)
   const moderated = study.method === 'moderated'
   const embedded = study.source.kind !== 'none'
+  const figma = study.source.kind === 'figma'
   const kept = ours(lang, 'study.retentionDefault', study.consent.retention) || `[${t('retentionHint')}]`
   const row = cells => `| ${cells.join(' | ')} |`
   const team = t('team')
   const stored = moderated ? t('researcherComputer') : t('resultsFile')
+  const rows = [
+    [t('timings'), moderated ? t('enteredByModerator') : t('recordedByBrowser'), moderated ? t('researcherBrowser') : t('resultsFileSent'), team, kept],
+    moderated && [t('notes'), t('typedByModerator'), t('researcherComputer'), team, kept],
+    [t('answers', { scale: study.questionnaire.post === 'none' ? 'SEQ' : study.questionnaire.post.toUpperCase() }), t('answeredOnScreen'), stored, team, kept],
+    embedded && [t('clicks'), t('recordedAutomatically'), stored, team, kept],
+    !moderated && [t('gaze'), t('gazeHow'), stored, team, kept],
+    figma && [t('figmaData'), t('figmaHow'), t('figmaWhere'), t('figmaWho'), t('figmaKept')],
+  ].filter(Boolean)
   return `# ${t('heading', { title: study.title || `[${translate(lang, 'study.doc.studyTitle')}]` })}
 
 > ${t('generated')}
 
 ${row([t('colData'), t('colHow'), t('colWhere'), t('colWho'), t('colKept')])}
 |---|---|---|---|---|
-${row([t('timings'), moderated ? t('enteredByModerator') : t('recordedByBrowser'), moderated ? t('researcherBrowser') : t('resultsFileSent'), team, kept])}
-${row([t('notes'), t('typedByModerator'), t('researcherComputer'), team, kept])}
-${row([t('answers', { scale: study.questionnaire.post === 'none' ? 'SEQ' : study.questionnaire.post.toUpperCase() }), t('answeredOnScreen'), stored, team, kept])}
-${embedded ? `${row([t('clicks'), t('recordedAutomatically'), stored, team, kept])}\n` : ''}
+${rows.map(row).join('\n')}
+
 - ${t('noMedia')}
-- ${t('noUpload')}
-${study.source.kind === 'figma' ? `- ${t('figma')}\n` : ''}- ${t('codes')}
+- ${t(figma ? 'noUploadFigma' : 'noUpload')}
+${figma ? `- ${t('figma')}\n` : ''}- ${t('codes')}
 - ${t('export')}
 `
 }

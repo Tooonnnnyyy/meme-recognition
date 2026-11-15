@@ -2,6 +2,7 @@ import { describeSignal, detectSignals, findCandidates, STRONG } from './signals
 import { LANGS, NATIVE, isLang, translate } from '../i18n/index.js'
 import { completion, meanInterval, timeInterval } from './stats.js'
 import { isSeq, susGrade } from './questionnaire.js'
+import { isFinished } from './sessionStatus.js'
 
 // Combines several participants' session files into one study report: per
 // task completion, time and ease, the SUS score, and the problems ranked by
@@ -11,6 +12,20 @@ import { isSeq, susGrade } from './questionnaire.js'
 // English, so analysis scripts read it the same way in every language.
 
 const COMPLETED = ['success', 'self-reported']
+// Every task outcome, in the order the report lists them.
+const OUTCOMES = ['success', 'self-reported', 'partial', 'failed', 'unverified', 'skipped', 'timeout']
+// The post-test questionnaires a study can ask.
+const POSTS = ['sus', 'umux-lite', 'none']
+
+// Task ids in the study's order, T1, T2 … T10 (numbers compare as numbers),
+// whatever order a counterbalanced participant ran them in.
+const byTaskId = (a, b) => (a || '').localeCompare(b || '', 'en', { numeric: true })
+
+// A mean as the report shows it (one decimal). A grade is read off this
+// value, the resolution of the published table, so the grade printed next to
+// "51.7" is the one the table gives 51.7.
+const shown = value => Number(value.toFixed(1))
+const gradeOf = mean => susGrade(shown(mean))
 
 // The signal a moment was opened by (its id is `${taskId}-${kind}-${start}`).
 const anchorOf = candidate => candidate.signals.find(signal => `${candidate.taskId}-${signal.kind}-${signal.start}` === candidate.id) || candidate.signals[0]
@@ -71,6 +86,8 @@ function problemsIn(candidate) {
 // A Figma session whose embed sent no events: goal frames could not be seen,
 // so its "stopped before the goal" outcomes say nothing about the design.
 export const figmaSilent = session => session.study?.kind === 'figma' && !session.quality?.figmaEvents
+// A session with an attempt that stopped before a goal frame it could not see.
+const unverifiedIn = session => session.tasks.some(task => task.end != null && task.outcome === 'unverified')
 
 // The same participant session loaded twice: keep the copy with more
 // reviews, so a file exported from the review screen replaces its raw copy.
@@ -100,15 +117,22 @@ function observationsOf(sessions) {
     // Only groups with at least one problem, error or assist note.
     .filter(group => group.participants.size)
     .map(({ participants, ...group }) => ({ ...group, participants: participants.size, who: [...participants] }))
-    .sort((a, b) => b.participants - a.participants || (a.taskId || '').localeCompare(b.taskId || '') || a.label.localeCompare(b.label))
+    .sort((a, b) => b.participants - a.participants || byTaskId(a.taskId, b.taskId) || a.label.localeCompare(b.label))
 }
 
-// includePilot: pilot sessions (a researcher's dry runs) are left out unless asked for.
-export function buildReport(allSessions, { includePilot = false } = {}) {
-  const sessions = includePilot ? allSessions : allSessions.filter(session => !session.pilot)
+// Left out unless asked for: pilot sessions (a researcher's dry runs) and
+// unfinished sessions (sessionStatus.isFinished: a moderated session that was
+// never ended, a participant file whose tasks did not all end). post is the
+// study's post-test questionnaire ('sus', 'umux-lite' or 'none') when the
+// caller knows it; the session files may name it too.
+export function buildReport(allSessions, { includePilot = false, includeUnfinished = false, post = null } = {}) {
+  const pilotsIn = includePilot ? allSessions : allSessions.filter(session => !session.pilot)
+  const unfinished = pilotsIn.filter(session => !isFinished(session))
+  const sessions = includeUnfinished ? pilotsIn : pilotsIn.filter(isFinished)
   const studies = [...new Set(sessions.map(session => session.study?.id))]
   const taskIds = []
   sessions.forEach(session => session.tasks.forEach(task => { if (!taskIds.includes(task.id)) taskIds.push(task.id) }))
+  taskIds.sort(byTaskId)
   const problems = new Map()
 
   const tasks = taskIds.map(id => {
@@ -117,8 +141,11 @@ export function buildReport(allSessions, { includePilot = false } = {}) {
     const unverifiable = ended.filter(item => figmaSilent(item.session) && item.task.outcome === 'unverified')
     const attempts = ended.filter(item => !unverifiable.includes(item))
     const done = attempts.filter(item => COMPLETED.includes(item.task.outcome))
-    const outcomes = {}
-    ended.forEach(item => { outcomes[item.task.outcome] = (outcomes[item.task.outcome] || 0) + 1 })
+    // Counted in a Map, so an outcome such as 'toString' in a stored session
+    // counts as itself instead of reading Object.prototype.
+    const counts = new Map()
+    ended.forEach(item => counts.set(item.task.outcome, (counts.get(item.task.outcome) || 0) + 1))
+    const outcomes = Object.fromEntries(counts)
     const seq = ended.map(item => item.task.seq).filter(isSeq)
     const prompts = [...new Set(ended.map(item => item.task.prompt).filter(Boolean))]
     return {
@@ -144,10 +171,13 @@ export function buildReport(allSessions, { includePilot = false } = {}) {
     const candidates = findCandidates(detectSignals(session))
     const reviews = session.reviews || {}
     const flaggedTasks = new Set()
+    // A task counts as flagged only where it ended, as only ended tasks are
+    // attempts: an open task (a tab closed mid-task) is in no denominator.
+    const ended = new Set(session.tasks.filter(task => task.end != null).map(task => task.id))
     candidates.forEach(candidate => {
       const review = reviews[candidate.id]
       const rejected = review?.status === 'rejected'
-      if (!rejected) flaggedTasks.add(candidate.taskId)
+      if (!rejected && ended.has(candidate.taskId)) flaggedTasks.add(candidate.taskId)
       problemsIn(candidate).forEach(problem => {
         const key = `${candidate.taskId}|${problem.key}`
         const entry = problems.get(key) || { ...problem, taskId: candidate.taskId, affected: new Set(), confirmedBy: new Set(), moments: 0, confirmed: 0, rejected: 0, severities: [] }
@@ -179,7 +209,7 @@ export function buildReport(allSessions, { includePilot = false } = {}) {
       open: entry.moments - entry.confirmed - entry.rejected,
     }))
     // Most severe confirmed first, then by how many people hit it.
-    .sort((a, b) => rank(b.severity) - rank(a.severity) || b.participants - a.participants || b.confirmedParticipants - a.confirmedParticipants || a.taskId.localeCompare(b.taskId))
+    .sort((a, b) => rank(b.severity) - rank(a.severity) || b.participants - a.participants || b.confirmedParticipants - a.confirmedParticipants || byTaskId(a.taskId, b.taskId))
 
   const susScores = sessions.map(session => session.sus?.score).filter(score => typeof score === 'number')
   const sus = meanInterval(susScores, { min: 0, max: 100 })
@@ -190,22 +220,47 @@ export function buildReport(allSessions, { includePilot = false } = {}) {
   // so mixing them is flagged. Sessions from before this was recorded count
   // as unknown, not as mixed.
   const languages = [...new Set(sessions.flatMap(session => (Array.isArray(session.questionnaireLangs) ? session.questionnaireLangs.filter(isLang) : [])))].sort()
+  const asked = [post, ...allSessions.map(session => session.study?.questionnaire?.post)].find(value => POSTS.includes(value)) || null
+  const umuxLite = umuxRaw && { raw: umuxRaw, sus: umuxSus, grade: gradeOf(umuxSus.mean) }
+  // Which "nobody answered" line the report shows: the questionnaire the
+  // study asked when its answers are missing, 'any' when the study is not
+  // known and the files hold no answers, else none. A study that asked
+  // UMUX-Lite or nothing never says nobody answered the SUS.
+  const noAnswers = (asked === 'sus' && !sus) || (asked === 'umux-lite' && !umuxLite) ? asked : !asked && !sus && !umuxLite ? 'any' : null
+  // The study's title: from the files in the report, else from any loaded
+  // file (a report of pilots only still has its study).
+  const titled = sessions.find(session => session.study?.title) || allSessions.find(session => session.study?.title)
   return {
     participants: sessions.map(session => session.participant),
     languages,
     mixedLanguages: languages.length > 1,
-    pilotsLeftOut: allSessions.length - sessions.length,
+    pilotsLeftOut: allSessions.length - pilotsIn.length,
+    // Unfinished sessions among those not left out as pilots, and how many
+    // of them are left out.
+    unfinished: unfinished.map(session => session.participant),
+    unfinishedLeftOut: includeUnfinished ? 0 : unfinished.length,
+    post: asked,
+    noAnswers,
     observations: observationsOf(sessions),
     // Every quote, for the report's voice of the participant.
     quotes: sessions.flatMap(session => (session.notes || []).filter(note => note.kind === 'quote').map(note => ({ participant: session.participant, taskId: note.taskId || null, text: note.text.trim(), tags: note.tags || [] }))),
-    umuxLite: umuxRaw && { raw: umuxRaw, sus: umuxSus, grade: susGrade(umuxSus.mean) },
+    umuxLite,
     mixedStudies: studies.length > 1 || tasks.some(task => task.promptsDiffer),
-    silentFigma: sessions.filter(figmaSilent).map(session => session.participant),
-    title: sessions[0]?.study?.title || 'Study',
+    // Figma sessions whose embed sent no events. silentFigma: those with
+    // attempts left out as unverifiable. figmaNoEvents: the others (a
+    // moderated session, where the moderator records every outcome, or one
+    // with no goal frames), whose numbers all count but where no clicks or
+    // frames were recorded.
+    silentFigma: sessions.filter(session => figmaSilent(session) && unverifiedIn(session)).map(session => session.participant),
+    figmaNoEvents: sessions.filter(session => figmaSilent(session) && !unverifiedIn(session)).map(session => session.participant),
+    // A participant-run session with no events usually means the client ID
+    // does not allow this site.
+    figmaCheckClientId: sessions.some(session => figmaSilent(session) && !unverifiedIn(session) && session.mode !== 'moderated'),
+    title: titled?.study.title || 'Study',
     // False when the files name no study title, so 'Study' above is a stand-in.
-    titled: Boolean(sessions[0]?.study?.title),
+    titled: Boolean(titled),
     tasks,
-    sus: sus && { ...sus, grade: susGrade(sus.mean) },
+    sus: sus && { ...sus, grade: gradeOf(sus.mean) },
     issues,
   }
 }
@@ -214,6 +269,14 @@ export function buildReport(allSessions, { includePilot = false } = {}) {
 export const reportTitle = (report, lang = 'en') => (report.titled === false ? translate(lang, 'report.untitled') : report.title)
 // The languages the questionnaires were answered in, each named in itself.
 export const languageList = (report, lang = 'en') => report.languages.map(code => NATIVE[code]).join(translate(lang, 'report.listSeparator'))
+
+// A task's outcomes in the report's order, as [outcome, count] pairs.
+const outcomeRank = outcome => (OUTCOMES.includes(outcome) ? OUTCOMES.indexOf(outcome) : OUTCOMES.length)
+export const outcomeList = task => Object.entries(task.outcomes).sort(([a], [b]) => outcomeRank(a) - outcomeRank(b) || a.localeCompare(b))
+// "3 partial success": one outcome's count in lang; an unknown outcome shows its code.
+export const outcomeCount = (lang, outcome, count) => translate(lang, `report.outcomes.${OUTCOMES.includes(outcome) ? outcome : 'other'}`, { count, outcome })
+// "1 completed · 3 partial success · 1 failed or gave up"
+export const outcomeSummary = (task, lang = 'en') => outcomeList(task).map(([outcome, count]) => outcomeCount(lang, outcome, count)).join(' · ')
 
 const percent = value => `${Math.round(value * 100)}%`
 const fixed = digits => value => value.toFixed(digits)
@@ -229,20 +292,28 @@ export function reportMarkdown(report, lang = 'en') {
   const seconds = ms => t('sec', { sec: Math.round(ms / 1000) })
   const range = (item, low, high, format) => (low != null ? t('md.ci', { low: format(low), high: format(high) }) : item?.noSpread ? t('md.noSpread') : '')
   const total = report.participants.length
-  const lines = [`# ${cell(t('md.title', { title: reportTitle(report, lang) }))}`, '', t('md.participants', { count: total, list: report.participants.join(t('listSeparator')) }), '']
+  const list = items => items.join(t('listSeparator'))
+  const lines = [`# ${cell(t('md.title', { title: reportTitle(report, lang) }))}`, '', t('md.participants', { count: total, list: list(report.participants) }), '']
   if (report.mixedStudies) lines.push(`> ${t('md.mixedStudies')}`, '')
   if (report.pilotsLeftOut) lines.push(`> ${t('md.pilotsLeftOut', { count: report.pilotsLeftOut })}`, '')
-  if (report.silentFigma.length) lines.push(`> ${t('md.silentFigma', { participants: report.silentFigma.join(t('listSeparator')) })}`, '')
+  if (report.unfinishedLeftOut) lines.push(`> ${t('md.unfinishedLeftOut', { count: report.unfinishedLeftOut, list: list(report.unfinished) })}`, '')
+  if (report.silentFigma.length) lines.push(`> ${t('md.silentFigma', { participants: list(report.silentFigma) })}`, '')
+  if (report.figmaNoEvents?.length) lines.push(`> ${t('md.figmaNoEvents', { participants: list(report.figmaNoEvents) })}${report.figmaCheckClientId ? `${lang === 'zh' ? '' : ' '}${t('checkClientId')}` : ''}`, '')
   if (report.mixedLanguages) lines.push(`> ${t('md.mixedLanguages', { languages: languageList(report, lang) })}`, '')
-  lines.push(`## ${t('md.tasks')}`, '', row([t('col.task'), t('col.completion'), t('md.col.time'), t('md.col.ease'), t('md.col.flagged')]), '|---|---|---|---|---|')
+  lines.push(`## ${t('md.tasks')}`, '', row([t('col.task'), t('col.completion'), t('md.col.outcomes'), t('md.col.time'), t('md.col.ease'), t('md.col.flagged')]), '|---|---|---|---|---|---|')
   report.tasks.forEach(task => {
     const completionText = task.completion ? t('md.completion', { successes: task.completion.successes, n: task.completion.n, percent: percent(task.completion.rate), range: range(task.completion, task.completion.low, task.completion.high, percent) }) : '–'
     const unverifiable = task.unverifiable ? t('md.unverifiable', { count: task.unverifiable }) : ''
-    lines.push(row([cell(t('md.task', { id: task.id, prompt: task.prompt })), `${completionText}${unverifiable}`, task.time ? `${seconds(task.time.geo)}${range(task.time, task.time.low, task.time.high, seconds)}` : '–', task.seq ? `${task.seq.mean.toFixed(1)}${range(task.seq, task.seq.low, task.seq.high, fixed(1))}` : '–', `${task.flagged}/${task.attempts + task.unverifiable}`]))
+    lines.push(row([cell(t('md.task', { id: task.id, prompt: task.prompt })), `${completionText}${unverifiable}`, cell(outcomeSummary(task, lang) || '–'), task.time ? `${seconds(task.time.geo)}${range(task.time, task.time.low, task.time.high, seconds)}` : '–', task.seq ? `${task.seq.mean.toFixed(1)}${range(task.seq, task.seq.low, task.seq.high, fixed(1))}` : '–', `${task.flagged}/${task.attempts + task.unverifiable}`]))
   })
-  lines.push('', `## ${t('md.sus')}`, '')
-  lines.push(report.sus ? t('md.susMean', { mean: report.sus.mean.toFixed(1), range: range(report.sus, report.sus.low, report.sus.high, fixed(1)), grade: report.sus.grade, n: report.sus.n }) : t('md.noSus'))
-  if (report.umuxLite) lines.push('', t('md.umux', { mean: report.umuxLite.raw.mean.toFixed(1), range: range(report.umuxLite.raw, report.umuxLite.raw.low, report.umuxLite.raw.high, fixed(1)), sus: report.umuxLite.sus.mean.toFixed(1), grade: report.umuxLite.grade, n: report.umuxLite.raw.n }))
+  // The post-test questionnaire: the results there are, and a "nobody
+  // answered" line only for a questionnaire the study asked (or when the
+  // study is not known). A study that asked nothing has no section.
+  const post = []
+  if (report.sus) post.push(t('md.susMean', { mean: report.sus.mean.toFixed(1), range: range(report.sus, report.sus.low, report.sus.high, fixed(1)), grade: report.sus.grade, n: report.sus.n }))
+  if (report.umuxLite) post.push(t('md.umux', { mean: report.umuxLite.raw.mean.toFixed(1), range: range(report.umuxLite.raw, report.umuxLite.raw.low, report.umuxLite.raw.high, fixed(1)), sus: report.umuxLite.sus.mean.toFixed(1), grade: report.umuxLite.grade, n: report.umuxLite.raw.n }))
+  if (report.noAnswers) post.push(t(`md.noAnswers.${report.noAnswers}`))
+  if (post.length) lines.push('', `## ${t('md.postTest')}`, '', post.join('\n\n'))
   const noteCounts = (kinds, separator) => Object.entries(kinds).map(([kind, count]) => noteCount(lang, kind, count)).join(separator)
   if (report.observations.length) {
     lines.push('', `## ${t('md.observed')}`, '', row([t('col.task'), t('md.col.observation'), t('md.col.participants'), t('md.col.notes'), t('md.col.evidence')]), '|---|---|---|---|---|')
@@ -278,7 +349,12 @@ export function reportCsv(report) {
   const rows = [CSV_HEADER]
   const interval = item => (item.low == null ? ['', ''] : [item.low, item.high])
   report.tasks.forEach(task => {
-    if (task.completion) rows.push(['task', task.id, 'completion rate', task.completion.rate, ...interval(task.completion), task.completion.n, '', '', '', task.unverifiable ? `${task.unverifiable} unverifiable` : ''])
+    // The completion row is written whenever an attempt ended, so a task
+    // whose attempts were all unverifiable still shows (value empty, n 0).
+    // One row per outcome follows: value is its count, n the ended attempts.
+    const ended = task.attempts + task.unverifiable
+    if (ended) rows.push(['task', task.id, 'completion rate', task.completion ? task.completion.rate : '', ...(task.completion ? interval(task.completion) : ['', '']), task.completion ? task.completion.n : 0, '', '', '', task.unverifiable ? `${task.unverifiable} unverifiable` : ''])
+    outcomeList(task).forEach(([outcome, count]) => rows.push(['task', task.id, `outcome: ${outcome}`, count, '', '', ended, '', '', '', '']))
     if (task.time) rows.push(['task', task.id, 'time on task (s, geometric mean)', task.time.geo / 1000, ...interval(task.time).map(value => (value === '' ? '' : value / 1000)), task.time.n, '', '', '', task.time.noSpread ? 'all values equal' : ''])
     if (task.seq) rows.push(['task', task.id, 'SEQ mean', task.seq.mean, ...interval(task.seq), task.seq.n, '', '', '', task.seq.noSpread ? 'all values equal' : ''])
   })

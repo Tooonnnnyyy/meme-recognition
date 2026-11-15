@@ -74,7 +74,7 @@ test('UMUX-Lite scores and its SUS equivalent', () => {
   assert.equal(umuxLiteScore([5]), null)
 })
 
-const moderated = (participant, notes, extra = {}) => ({ version: 1, mode: 'moderated', study: { id: 'lab', kind: 'observed', title: 'Drop a course' }, participant, startedAt: participant, quality: { gazeEnabled: false, frames: 0, faceFrames: 0 }, tasks: [{ id: 'T1', prompt: 'Find the deadline', start: 0, end: 90000, outcome: 'partial', seq: 4 }], events: [], gaze: [], face: [], aois: {}, notes, ...extra })
+const moderated = (participant, notes, extra = {}) => ({ version: 1, mode: 'moderated', study: { id: 'lab', kind: 'observed', title: 'Drop a course' }, participant, startedAt: participant, quality: { gazeEnabled: false, frames: 0, faceFrames: 0 }, tasks: [{ id: 'T1', prompt: 'Find the deadline', start: 0, end: 90000, outcome: 'partial', seq: 4 }], events: [], gaze: [], face: [], aois: {}, notes, finishedAt: '2026-11-15T00:00:00Z', ...extra })
 const note = (kind, text, tags = []) => ({ t: 5000, taskId: 'T1', kind, text, tags })
 
 test('observer notes become problems grouped by tag across participants; pilots stay out', () => {

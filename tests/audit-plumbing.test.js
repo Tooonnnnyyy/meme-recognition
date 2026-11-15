@@ -32,3 +32,10 @@ test('an unmoderated study is held to what a link can carry', () => {
   const many = { ...long, tasks: Array.from({ length: 11 }, (_, index) => ({ id: `T${index + 1}`, prompt: 'Do it.', success: '', limitSec: 120, start: null, successPage: null })) }
   assert.ok(studyProblems(many).some(text => /at most 10 tasks/.test(text)))
 })
+
+test('#0: a typed client ID that is not a client ID is a plan problem, and never reaches a session', () => {
+  const study = figmaStudy()
+  study.source.figma.clientId = 'https://www.figma.com/developers/apps'
+  assert.ok(studyProblems(study).some(text => /client ID does not look right/.test(text)))
+  assert.equal(toRuntimeStudy(study).figma.clientId, null)
+})

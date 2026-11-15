@@ -23,7 +23,9 @@ export function toNodeId(raw) {
 
 // A prototype or design link: figma.com/proto/<file>/<name>?node-id=1-2.
 // Returns { fileKey, name, nodeId, startNodeId } or null. A bare node id
-// ('12:34' or '12-34') gives { nodeId } alone.
+// ('12:34' or '12-34') gives { nodeId } alone. A branch link,
+// /<kind>/<main file>/branch/<branch>/<name>, gives the branch: it has its
+// own key, and the main file's key would show the main file's prototype.
 export function parseFigmaLink(text) {
   const raw = String(text || '').trim()
   if (!raw) return null
@@ -32,7 +34,9 @@ export function parseFigmaLink(text) {
   let url
   try { url = new URL(raw) } catch { return null }
   if (url.protocol !== 'https:' || !FIGMA_HOSTS.includes(url.hostname)) return null
-  const [, kind, fileKey, name] = url.pathname.split('/')
+  const parts = url.pathname.split('/')
+  let [, kind, fileKey, name] = parts
+  if (isFileKey(fileKey) && parts[3] === 'branch' && isFileKey(parts[4])) [fileKey, name] = [parts[4], parts[5]]
   if (!['proto', 'design', 'file'].includes(kind) || !isFileKey(fileKey)) return null
   return { fileKey, name: name ? decodeURIComponent(name) : 'Prototype', nodeId: toNodeId(url.searchParams.get('node-id')), startNodeId: toNodeId(url.searchParams.get('starting-point-node-id')) }
 }
