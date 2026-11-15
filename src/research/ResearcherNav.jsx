@@ -5,6 +5,7 @@ const SCREENS = [['#setup', 'Set up'], ['#review', 'Review a session'], ['#repor
 
 export function ResearcherNav({ current }) {
   return <nav className="researcher-nav" aria-label="Researcher screens">
+    <a href="lab.html">Usability Lab</a>
     {SCREENS.map(([hash, label]) => <a key={hash} href={hash} aria-current={current === hash ? 'page' : undefined}>{label}</a>)}
   </nav>
 }

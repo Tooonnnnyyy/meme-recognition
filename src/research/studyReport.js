@@ -62,7 +62,35 @@ export const figmaSilent = session => session.study?.kind === 'figma' && !sessio
 export const sessionKey = session => `${session.participant}|${session.startedAt}`
 export const reviewCount = session => Object.values(session.reviews || {}).filter(review => ['confirmed', 'rejected'].includes(review?.status)).length
 
-export function buildReport(sessions) {
+// Observer notes (moderated sessions) that describe a problem, grouped across
+// participants: by tag when the observer tagged the note (#tag), else by the
+// note's text. Quotes and plain notes on the same task and tag are kept as
+// evidence.
+const PROBLEM_NOTES = ['problem', 'error', 'assist']
+const normal = text => text.toLowerCase().replace(/\s+/g, ' ').trim()
+function observationsOf(sessions) {
+  const groups = new Map()
+  sessions.forEach(session => (session.notes || []).forEach(note => {
+    const keys = note.tags?.length ? note.tags.map(tag => `#${normal(tag)}`) : [normal(note.text)]
+    keys.forEach(label => {
+      const key = `${note.taskId || ''}|${label}`
+      const group = groups.get(key) || { taskId: note.taskId || null, label: label.startsWith('#') ? label : note.text.trim(), tagged: label.startsWith('#'), participants: new Set(), kinds: {}, evidence: [] }
+      if (PROBLEM_NOTES.includes(note.kind)) group.participants.add(session.participant)
+      group.kinds[note.kind] = (group.kinds[note.kind] || 0) + 1
+      if (group.evidence.length < 5) group.evidence.push({ participant: session.participant, kind: note.kind, text: note.text.trim() })
+      groups.set(key, group)
+    })
+  }))
+  return [...groups.values()]
+    // Only groups with at least one problem, error or assist note.
+    .filter(group => group.participants.size)
+    .map(({ participants, ...group }) => ({ ...group, participants: participants.size, who: [...participants] }))
+    .sort((a, b) => b.participants - a.participants || (a.taskId || '').localeCompare(b.taskId || '') || a.label.localeCompare(b.label))
+}
+
+// includePilot: pilot sessions (a researcher's dry runs) are left out unless asked for.
+export function buildReport(allSessions, { includePilot = false } = {}) {
+  const sessions = includePilot ? allSessions : allSessions.filter(session => !session.pilot)
   const studies = [...new Set(sessions.map(session => session.study?.id))]
   const taskIds = []
   sessions.forEach(session => session.tasks.forEach(task => { if (!taskIds.includes(task.id)) taskIds.push(task.id) }))
@@ -140,8 +168,16 @@ export function buildReport(sessions) {
 
   const susScores = sessions.map(session => session.sus?.score).filter(score => typeof score === 'number')
   const sus = meanInterval(susScores, { min: 0, max: 100 })
+  // UMUX-Lite is reported on its own scale and as its SUS equivalent.
+  const umuxRaw = meanInterval(sessions.map(session => session.umuxLite?.raw).filter(score => typeof score === 'number'), { min: 0, max: 100 })
+  const umuxSus = meanInterval(sessions.map(session => session.umuxLite?.sus).filter(score => typeof score === 'number'), { min: 0, max: 100 })
   return {
     participants: sessions.map(session => session.participant),
+    pilotsLeftOut: allSessions.length - sessions.length,
+    observations: observationsOf(sessions),
+    // Every quote, for the report's voice of the participant.
+    quotes: sessions.flatMap(session => (session.notes || []).filter(note => note.kind === 'quote').map(note => ({ participant: session.participant, taskId: note.taskId || null, text: note.text.trim(), tags: note.tags || [] }))),
+    umuxLite: umuxRaw && { raw: umuxRaw, sus: umuxSus, grade: susGrade(umuxSus.mean) },
     mixedStudies: studies.length > 1 || tasks.some(task => task.promptsDiffer),
     silentFigma: sessions.filter(figmaSilent).map(session => session.participant),
     title: sessions[0]?.study?.title || 'Study',
@@ -163,6 +199,7 @@ export function reportMarkdown(report) {
   const total = report.participants.length
   const lines = [`# ${cell(report.title)}: usability test report`, '', `${plural(total, 'participant')}: ${report.participants.join(', ')}.`, '']
   if (report.mixedStudies) lines.push('> These files come from more than one study or version (different study ids or task instructions); tasks are matched by id.', '')
+  if (report.pilotsLeftOut) lines.push(`> ${plural(report.pilotsLeftOut, 'pilot session')} left out.`, '')
   if (report.silentFigma.length) lines.push(`> The Figma prototype sent no events for ${report.silentFigma.join(', ')}, so their goal frames could not be checked. Those attempts are left out of completion and time and counted as unverifiable.`, '')
   lines.push('## Tasks', '', '| Task | Completion | Time on task (geometric mean) | Ease (SEQ, 1–7) | Participants with flagged moments |', '|---|---|---|---|---|')
   report.tasks.forEach(task => {
@@ -172,6 +209,15 @@ export function reportMarkdown(report) {
   })
   lines.push('', '## System Usability Scale', '')
   lines.push(report.sus ? `Mean SUS ${report.sus.mean.toFixed(1)}${range(report.sus, report.sus.low, report.sus.high, fixed(1))}, grade ${report.sus.grade} on the Sauro–Lewis curve (68 is average), from ${plural(report.sus.n, 'participant')}.` : 'No participant completed the SUS questionnaire.')
+  if (report.umuxLite) lines.push('', `Mean UMUX-Lite ${report.umuxLite.raw.mean.toFixed(1)}${range(report.umuxLite.raw, report.umuxLite.raw.low, report.umuxLite.raw.high, fixed(1))}, SUS equivalent ${report.umuxLite.sus.mean.toFixed(1)} (grade ${report.umuxLite.grade}), from ${plural(report.umuxLite.raw.n, 'participant')}.`)
+  if (report.observations.length) {
+    lines.push('', '## Observed problems (observer notes)', '', '| Task | Observation | Participants | Notes | Evidence |', '|---|---|---|---|---|')
+    report.observations.forEach(group => lines.push(`| ${group.taskId || '–'} | ${cell(group.label)} | ${group.participants}/${total} | ${cell(Object.entries(group.kinds).map(([kind, count]) => `${count} ${kind}`).join(', '))} | ${cell(group.evidence.slice(0, 3).map(item => `${item.participant}: ${item.kind === 'quote' ? `“${item.text}”` : item.text}`).join('; '))} |`))
+  }
+  if (report.quotes.length) {
+    lines.push('', '## What participants said', '')
+    report.quotes.forEach(quote => lines.push(`- “${cell(quote.text)}” (${quote.participant}${quote.taskId ? `, ${quote.taskId}` : ''})`))
+  }
   lines.push('', '## Problems', '', '| Task | Problem | Participants affected | Confirmed by | Severity (0–4) | Moments not reviewed |', '|---|---|---|---|---|---|')
   report.issues.forEach(issue => lines.push(`| ${issue.taskId} | ${cell(issue.title)} | ${issue.participants}/${total} | ${issue.confirmedParticipants} | ${issue.severity == null ? '–' : `${issue.severity} (${SEVERITY[issue.severity]})`} | ${issue.open} |`))
   if (!report.issues.length) lines.push('| – | Nothing was flagged | | | | |')
@@ -199,6 +245,8 @@ export function reportCsv(report) {
     if (task.seq) rows.push(['task', task.id, 'SEQ mean', task.seq.mean, ...interval(task.seq), task.seq.n, '', '', '', task.seq.noSpread ? 'all values equal' : ''])
   })
   if (report.sus) rows.push(['sus', '', `SUS mean (grade ${report.sus.grade})`, report.sus.mean, ...interval(report.sus), report.sus.n, '', '', '', report.sus.noSpread ? 'all values equal' : ''])
+  if (report.umuxLite) rows.push(['umux-lite', '', `UMUX-Lite mean (SUS equivalent ${Math.round(report.umuxLite.sus.mean * 10) / 10}, grade ${report.umuxLite.grade})`, report.umuxLite.raw.mean, ...interval(report.umuxLite.raw), report.umuxLite.raw.n, '', '', '', ''])
+  report.observations.forEach(group => rows.push(['observation', group.taskId || '', group.label, group.participants, '', '', report.participants.length, Object.values(group.kinds).reduce((sum, count) => sum + count, 0), '', '', Object.entries(group.kinds).map(([kind, count]) => `${count} ${kind}`).join('; ')]))
   report.issues.forEach(issue => rows.push(['problem', issue.taskId, issue.title, issue.participants, '', '', report.participants.length, issue.moments, issue.confirmedParticipants, issue.severity ?? '', issue.open ? `${plural(issue.open, 'moment')} not reviewed` : '']))
   return rows.map(row => CSV_HEADER.map((_, index) => csvCell(row[index] ?? '')).join(',')).join('\n')
 }

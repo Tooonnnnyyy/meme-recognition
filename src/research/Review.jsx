@@ -3,11 +3,13 @@ import { describeSignal, detectSignals, findCandidates, sessionFixations, STRONG
 import { ThemeToggle } from '../ThemeToggle'
 import { ResearcherNav } from './ResearcherNav'
 import { embedUrl, isClientId, isFileKey, isNodeId } from './figma'
-import { isSeq, susGrade, susScore } from './questionnaire'
+import { isSeq, susGrade, susScore, umuxLiteScore } from './questionnaire'
 
 const BASE = import.meta.env.BASE_URL
 const clock = ms => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
-const OUTCOME_CLASS = { success: 'ok', 'self-reported': 'ok', unverified: 'bad', skipped: 'bad', timeout: 'bad' }
+const OUTCOME_CLASS = { success: 'ok', 'self-reported': 'ok', partial: 'partial', unverified: 'bad', failed: 'bad', skipped: 'bad', timeout: 'bad' }
+// Observer note kinds from a moderated session (lab.html console).
+export const NOTE_KINDS = { note: 'Note', problem: 'Problem', quote: 'Quote', assist: 'Assist', error: 'Error' }
 // Nielsen's severity scale: a level is its index.
 const SEVERITY = ['not a problem', 'cosmetic', 'minor', 'major', 'catastrophe']
 
@@ -46,10 +48,16 @@ const isAccuracy = accuracy => isRecord(accuracy) && isNumber(accuracy.meanPx) &
 // Pages are paths in the study site, or Figma node ids ('12:34') in a Figma
 // study, whose replay is the Figma embed opened at that frame.
 const isFigmaStudy = study => isRecord(study) && study.kind === 'figma'
+// A moderated session on any product: nothing embedded, only notes and times.
+const isObservedStudy = study => isRecord(study) && study.kind === 'observed'
 const fieldsFor = isPage => ({
   study: study => isRecord(study) && isText(study.title) && (isFigmaStudy(study)
     ? isRecord(study.figma) && isFileKey(study.figma.fileKey) && isText(study.figma.name) && optional(isClientId)(study.figma.clientId)
-    : isPath(study.siteBase)),
+    : isObservedStudy(study) || isPath(study.siteBase)),
+  mode: optional(mode => ['moderated', 'unmoderated'].includes(mode)),
+  pilot: optional(pilot => typeof pilot === 'boolean'),
+  notes: optional(listOf(note => isNumber(note.t) && optional(isText)(note.taskId) && Object.hasOwn(NOTE_KINDS, note.kind) && isText(note.text) && optional(tags => Array.isArray(tags) && tags.every(isText))(note.tags))),
+  umuxLite: optional(umux => isRecord(umux) && Array.isArray(umux.answers) && umuxLiteScore(umux.answers)?.raw === umux.raw && umuxLiteScore(umux.answers)?.sus === umux.sus),
   participant: isText,
   viewport: optional(viewport => isRecord(viewport) && isNumber(viewport.width) && isNumber(viewport.height)),
   quality: quality => isRecord(quality) && typeof quality.gazeEnabled === 'boolean' && isNumber(quality.frames) && isNumber(quality.faceFrames)
@@ -168,6 +176,25 @@ function Timeline({ session, analysis, selected, onSelect }) {
 }
 
 // Everything drawn from one file, inside the Guard.
+// Observer notes from a moderated session, by task, with their times.
+function NotesList({ session }) {
+  const notes = session.notes || []
+  if (!notes.length) return null
+  const tasks = [...session.tasks.map(task => task.id), null]
+  return <section className="notes-list" aria-label="Observer notes">
+    <span className="kicker">Observer notes · {notes.length}</span>
+    {tasks.map(taskId => {
+      const own = notes.filter(note => (note.taskId ?? null) === taskId)
+      if (!own.length) return null
+      const task = session.tasks.find(item => item.id === taskId)
+      return <div key={taskId || 'none'} className="notes-task">
+        <b>{taskId ? `${taskId} · ${task?.prompt || ''}` : 'Between tasks'}</b>
+        <ul>{own.map((note, index) => <li key={index} className={`note note-${note.kind}`}><span className="mono small">{clock(note.t)}</span><span className="chip">{NOTE_KINDS[note.kind].toUpperCase()}</span><span>{note.kind === 'quote' ? `“${note.text}”` : note.text}</span>{note.tags?.map(tag => <span key={tag} className="tag">#{tag}</span>)}</li>)}</ul>
+      </div>
+    })}
+  </section>
+}
+
 function SessionView({ session, analysis, reviews, selectedId, onSelect, onReview }) {
   const selected = analysis.candidates.find(candidate => candidate.id === selectedId) || analysis.candidates[0] || null
   const { quality } = session
@@ -192,17 +219,20 @@ function SessionView({ session, analysis, reviews, selectedId, onSelect, onRevie
         {drift !== null && <span className="chip">DRIFT CHECK ×{quality.driftChecks.length} · {drift} PX</span>}
         {isFigmaStudy(session.study) && !quality.figmaEvents && <span className="chip strong">NO FIGMA EVENTS</span>}
         <span className="chip">NO VIDEO STORED</span>
-        {(session.tasks.some(task => task.seq != null) || session.sus) && <div className="ratings">
+        {session.mode === 'moderated' && <span className="chip">MODERATED{session.pilot ? ' · PILOT' : ''}</span>}
+        {(session.tasks.some(task => task.seq != null) || session.sus || session.umuxLite) && <div className="ratings">
           <span className="kicker">Ratings</span>
           {session.tasks.map(task => <span key={task.id} className={`chip ${task.seq != null && task.seq < 5 ? 'strong' : ''}`} title="Single Ease Question, 1 very difficult to 7 very easy">{task.id} EASE {task.seq ?? '–'}/7</span>)}
           {session.sus && <span className="chip live" title="System Usability Scale, 0–100; 68 is average">SUS {session.sus.score.toFixed(1)} · {susGrade(session.sus.score)}</span>}
+          {session.umuxLite && <span className="chip live" title="UMUX-Lite, 0–100, with its SUS-equivalent score">UMUX-LITE {session.umuxLite.raw.toFixed(1)} · SUS-EQ {session.umuxLite.sus.toFixed(1)} · {susGrade(session.umuxLite.sus)}</span>}
         </div>}
         {lost?.reason && <p className="muted small">Camera lost: {lost.reason}.</p>}
         {isFigmaStudy(session.study) && !quality.figmaEvents && <p className="muted small">The Figma embed sent no events, so clicks and screens were not recorded. Check that the study's client ID allows this site's address in Figma.</p>}
         {session.baseline?.from === 'tasks' && <p className="muted small">Calibration gave no face baseline, so brow and lean are compared with the participant's first face frames in the tasks.</p>}
       </div>
-      {selected ? <Replay session={session} candidate={selected} fixations={analysis.fixations} /> : <div className="replay empty"><p className="muted">No moments were flagged in this session.</p></div>}
+      {selected ? <Replay session={session} candidate={selected} fixations={analysis.fixations} /> : !isObservedStudy(session.study) && <div className="replay empty"><p className="muted">No moments were flagged in this session.</p></div>}
       <Timeline session={session} analysis={analysis} selected={selected} onSelect={onSelect} />
+      <NotesList session={session} />
     </section>
     <aside className="sidebar">
       <div className="sidebar-head"><span className="kicker">Candidate moments</span><h3>{analysis.candidates.length} flagged · {reviewed} reviewed</h3>
@@ -223,7 +253,7 @@ function SessionView({ session, analysis, reviews, selectedId, onSelect, onRevie
             </div>
           </article>
         })}
-        {!analysis.candidates.length && <p className="muted small">Nothing was flagged. Check the data quality chips: with gaze off, only click and page signals are available.{lost && ` Gaze and face signals stop at ${clock(lost.t)}, when the camera was lost.`}</p>}
+        {!analysis.candidates.length && <p className="muted small">{isObservedStudy(session.study) ? 'This moderated session observed a product outside the browser, so nothing is detected automatically. Its findings are the observer notes.' : <>Nothing was flagged. Check the data quality chips: with gaze off, only click and page signals are available.{lost && ` Gaze and face signals stop at ${clock(lost.t)}, when the camera was lost.`}</>}</p>}
       </div>
       <p className="muted small sidebar-note">Severity uses Nielsen’s 0–4 scale (0 not a problem, 4 catastrophe). Flags are evidence for you to judge, not findings.</p>
     </aside>
@@ -232,7 +262,10 @@ function SessionView({ session, analysis, reviews, selectedId, onSelect, onRevie
 
 // main.jsx keeps Review mounted while it is hidden, so Back and Forward keep
 // unexported reviews.
-export function Review({ initialSession, request = 0, hidden = false }) {
+// In the researcher workspace (lab.html) Review gets onSave, which receives
+// the session with its reviews after every change (no export needed), and nav,
+// the workspace's own navigation.
+export function Review({ initialSession, request = 0, hidden = false, onSave, nav = <ResearcherNav current="#review" /> }) {
   const [open, setOpen] = useState(() => (initialSession ? opened(initialSession) : null))
   const [reviews, setReviews] = useState(initialSession?.reviews || {})
   const [selectedId, setSelectedId] = useState(null)
@@ -300,8 +333,12 @@ export function Review({ initialSession, request = 0, hidden = false }) {
   // says what was judged if the moments are scored differently later.
   const setReview = (candidate, change) => {
     const moment = { taskId: candidate.taskId, start: candidate.start, end: candidate.end, signals: candidate.signals.map(signal => signal.kind) }
-    setReviews(current => ({ ...current, [candidate.id]: { status: 'open', severity: null, ...current[candidate.id], ...change, moment } }))
-    setUnexported(true)
+    setReviews(current => {
+      const next = { ...current, [candidate.id]: { status: 'open', severity: null, ...current[candidate.id], ...change, moment } }
+      if (onSave) onSave({ ...session, reviews: next })
+      return next
+    })
+    if (!onSave) setUnexported(true)
   }
 
   // Mounted only when shown, so it picks up a theme chosen on another screen.
@@ -310,12 +347,12 @@ export function Review({ initialSession, request = 0, hidden = false }) {
   const picker = <label className="btn ghost file-button" htmlFor="session-file">{session ? 'Load another file' : 'Choose a session file'}<input ref={inputRef} id="session-file" type="file" accept="application/json,.json" onChange={event => { const [file] = event.target.files; event.target.value = ''; if (file) load(file) }} /></label>
 
   if (!session) return <div className="screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Researcher review</small></div></div><div className="actions"><ResearcherNav current="#review" />{toggle}</div></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Researcher review</small></div></div><div className="actions">{nav}{toggle}</div></header>
     <main className="center-note"><span className="kicker">Review a session</span><h2>Load a session file</h2><p className="muted">Participants download a results file at the end of a session. Load it here to see flagged moments. Files are read in this browser and not uploaded.</p>{picker}{error && <p className="warning" role="alert">{error}</p>}</main>
   </div>
 
   return <div className="screen review-screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Session review · {session.participant}</strong><small>{session.study.title} · {session.tasks.length} tasks · {clock(analysis.duration)}</small></div></div><div className="actions"><ResearcherNav current="#review" />{picker}<button className="btn secondary" onClick={exportFile}>Export reviewed file</button>{toggle}</div></header>
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Session review · {session.participant}</strong><small>{session.study.title} · {session.tasks.length} tasks · {clock(analysis.duration)}</small></div></div><div className="actions">{nav}{picker}<button className="btn secondary" onClick={exportFile}>Export reviewed file</button>{toggle}</div></header>
     {error && <p className="warning banner" role="alert">{error}</p>}
     {pending && <div className="warning banner actions" role="group" aria-labelledby="replace-note" onKeyDown={event => event.key === 'Escape' && cancelLoad()}>
       <span id="replace-note">Your reviews for {session.participant} are not exported yet. Loading {pending.session.participant} will replace them.</span>

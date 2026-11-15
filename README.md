@@ -41,6 +41,7 @@ Gesture Meme Studio turns a webcam into an expressive controller. Hold an illust
 - **Researcher review:** open `research.html#review`, load a session file, confirm or reject each flagged moment with a 0–4 severity, and export the reviewed file. Files are read locally.
 - **Demo:** a fictional shop in `public/research-site/` contains three planted usability problems for the demo study.
 
+- **Usability Lab (`lab.html`):** the researcher workspace. Plan studies without code, run moderated sessions on this computer with a task console, quick keyboard notes (#tags), outcomes including partial success and counterbalanced task order, generate a TCPS 2 consent draft and a data management statement, and get a report that combines observed and detected problems. Everything stays in this browser; studies export as package files. See [docs/usability-lab.md](docs/usability-lab.md).
 - **Questionnaires and study report:** an ease rating (SEQ) after each task and the System Usability Scale at the end, both optional. `research.html#report` combines every participant's file: completion rates, time on task and ease with 95% intervals, the SUS score and grade, and problems ranked by severity and frequency, exported as Markdown or CSV.
 - **Figma prototypes:** open `research.html#setup`, paste a Figma prototype link and a client ID, write the tasks, and send participants the link it makes. Unanswered clicks come from Figma's own hotspot report; frames give page loops and goal completion.
 

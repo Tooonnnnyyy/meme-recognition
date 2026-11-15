@@ -1,5 +1,5 @@
 import { FIGMA_ORIGIN, figmaTranslator } from './figma.js'
-import { isSeq, susScore } from './questionnaire.js'
+import { isSeq, susScore, umuxLiteScore } from './questionnaire.js'
 
 // Builds the session file while a participant works through the tasks. It
 // watches the test page inside a same-origin iframe: clicks, page changes,
@@ -82,7 +82,7 @@ export function createRecorder({ study, participant }) {
     version: 1,
     study: study.kind === 'figma'
       ? { id: study.id, kind: 'figma', title: study.title, figma: { fileKey: study.figma.fileKey, name: study.figma.name, clientId: study.figma.clientId } }
-      : { id: study.id, title: study.title, siteBase: study.siteBase },
+      : study.kind === 'observed' ? { id: study.id, kind: 'observed', title: study.title } : { id: study.id, title: study.title, siteBase: study.siteBase },
     participant,
     startedAt: new Date().toISOString(),
     viewport: null,
@@ -262,6 +262,25 @@ export function createRecorder({ study, participant }) {
     setSus(answers) {
       const score = susScore(answers)
       session.sus = score == null ? null : { answers: [...answers], score }
+    },
+    // The two UMUX-Lite answers (1–7 each), or null if skipped.
+    setUmuxLite(answers) {
+      const score = umuxLiteScore(answers)
+      session.umuxLite = score && { answers: [...answers], ...score }
+    },
+    // A moderator's note, stamped with the time and the running (or last) task.
+    // #words in the text become tags, which group notes across participants.
+    addNote(kind, text) {
+      const clean = text.trim()
+      if (!clean) return null
+      const tags = [...new Set((clean.match(/#[\p{L}\p{N}_-]+/gu) || []).map(tag => tag.slice(1).toLowerCase()))]
+      const note = { t: now(), taskId: task?.id ?? session.tasks.at(-1)?.id ?? null, kind, text: clean.replace(/\s*#[\p{L}\p{N}_-]+/gu, '').trim() || clean, tags }
+      session.notes ??= []
+      session.notes.push(note)
+      return note
+    },
+    removeNote(note) {
+      session.notes = (session.notes || []).filter(item => item !== note)
     },
     get currentPage() { return page },
     stop() { detach() },

@@ -38,3 +38,16 @@ export function susScore(answers) {
 // average (68), an A is the top 10%.
 const GRADES = [[84.1, 'A+'], [80.8, 'A'], [78.9, 'A−'], [77.2, 'B+'], [74.1, 'B'], [72.6, 'B−'], [71.1, 'C+'], [65, 'C'], [62.7, 'C−'], [51.7, 'D']]
 export const susGrade = score => (score == null ? null : (GRADES.find(([floor]) => score >= floor)?.[1] || 'F'))
+
+// UMUX-Lite (Lewis, Utesch & Maher 2013): two 7-point items, a short
+// alternative to the SUS when time is tight. The raw score runs 0–100; the
+// regression 0.65 × raw + 22.9 puts it on the SUS scale, so the same grades
+// apply.
+export const UMUX_LITE_SCALE = ['Strongly disagree', '', '', '', '', '', 'Strongly agree']
+const UMUX_TEXT = ["This {p}'s capabilities meet my requirements.", 'This {p} is easy to use.']
+export const umuxLiteItems = product => UMUX_TEXT.map(text => text.replace('{p}', product))
+export function umuxLiteScore(answers) {
+  if (!Array.isArray(answers) || answers.length !== 2 || !answers.every(answer => Number.isInteger(answer) && answer >= 1 && answer <= 7)) return null
+  const raw = ((answers[0] - 1) + (answers[1] - 1)) / 12 * 100
+  return { raw: Math.round(raw * 10) / 10, sus: Math.round((0.65 * raw + 22.9) * 10) / 10 }
+}

@@ -14,7 +14,7 @@ const seconds = ms => {
   return whole >= 60 ? `${Math.floor(whole / 60)} min ${whole % 60} s` : `${whole} s`
 }
 const SEVERITY = ['not a problem', 'cosmetic', 'minor', 'major', 'catastrophe']
-const OUTCOME_NAMES = { success: 'completed', 'self-reported': 'done (said so)', unverified: 'stopped early', skipped: 'skipped', timeout: 'timed out' }
+const OUTCOME_NAMES = { success: 'completed', 'self-reported': 'done (said so)', partial: 'partial success', failed: 'failed or gave up', unverified: 'stopped early', skipped: 'skipped', timeout: 'timed out' }
 
 const save = (text, name, type) => {
   const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([text], { type })), download: name })
@@ -32,12 +32,16 @@ function Bar({ value, low, high, label }) {
 
 const interval = (item, format) => (item.low != null ? `95% CI ${format(item.low)}–${format(item.high)}` : item.noSpread ? 'all values equal, no interval' : 'one value, no interval')
 
-export function Report() {
-  const [sessions, setSessions] = useState([])
+// In the researcher workspace (lab.html) the report opens on a study's
+// sessions (initialSessions) with the workspace's navigation (nav).
+export function Report({ initialSessions = [], nav = <ResearcherNav current="#report" />, title }) {
+  const [sessions, setSessions] = useState(initialSessions)
+  const [includePilot, setIncludePilot] = useState(false)
   const [errors, setErrors] = useState([])
   const [notices, setNotices] = useState([])
   const inputRef = useRef(null)
-  const report = useMemo(() => (sessions.length ? buildReport(sessions) : null), [sessions])
+  const report = useMemo(() => (sessions.length ? buildReport(sessions, { includePilot }) : null), [sessions, includePilot])
+  const pilots = sessions.filter(session => session.pilot).length
 
   const load = async files => {
     const problems = []
@@ -70,8 +74,8 @@ export function Report() {
   const slug = report?.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'study'
 
   return <div className="screen">
-    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study report{report ? ` · ${report.title}` : ''}</small></div></div>
-      <div className="actions"><ResearcherNav current="#report" />{picker}
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study report{report ? ` · ${title || report.title}` : ''}</small></div></div>
+      <div className="actions">{nav}{picker}
         {report && <><button className="btn secondary" onClick={() => save(reportMarkdown(report), `${slug}-report.md`, 'text/markdown')}>Export report (.md)</button><button className="btn ghost" onClick={() => save(reportCsv(report), `${slug}-report.csv`, 'text/csv')}>Export CSV</button></>}
         <ThemeToggle /></div></header>
     {!report && <main className="center-note"><span className="kicker">Study report</span><h2>Combine participants' results</h2><p className="muted">Load the results files from every participant (you can choose several at once). Files reviewed on the review screen also bring their confirmed problems and severities. Nothing is uploaded.</p>{picker}{errors.map(error => <p key={error} className="warning" role="alert">{error}</p>)}</main>}
@@ -83,14 +87,16 @@ export function Report() {
       <section className="report-files">
         <span className="kicker">{sessions.length} {sessions.length === 1 ? 'participant' : 'participants'}</span>
         {sessions.map(session => <span key={`${session.participant}|${session.startedAt}`} className="chip">{session.participant}<button className="chip-x" aria-label={`Remove ${session.participant}`} onClick={() => setSessions(current => current.filter(item => item !== session))}>×</button></span>)}
-        {sessions.length < 5 && <span className="muted small">With fewer than 5 participants the intervals are very wide; treat numbers as hints.</span>}
+        {pilots > 0 && <label className="check inline-check" htmlFor="include-pilot"><input id="include-pilot" type="checkbox" checked={includePilot} onChange={event => setIncludePilot(event.target.checked)} />Include {pilots} pilot {pilots === 1 ? 'session' : 'sessions'}</label>}
+        {report.participants.length < 5 && <span className="muted small">With fewer than 5 participants the intervals are very wide; treat numbers as hints.</span>}
       </section>
 
       <section className="report-cards">
         <div className="panel stat"><span className="kicker">SUS</span>{report.sus
           ? <><b className="big">{report.sus.mean.toFixed(1)}</b><span className="chip live">GRADE {report.sus.grade}</span><span className="muted small">{interval(report.sus, value => value.toFixed(1))} · {report.sus.n} answered · 68 is average</span><Bar value={report.sus.mean / 100} low={report.sus.low == null ? null : report.sus.low / 100} high={report.sus.high == null ? null : report.sus.high / 100} label={`SUS ${report.sus.mean.toFixed(1)} of 100`} /></>
           : <span className="muted">No participant answered the SUS questions.</span>}</div>
-        <div className="panel stat"><span className="kicker">Problems</span><b className="big">{report.issues.length}</b><span className="muted small">{report.issues.filter(issue => issue.confirmed).length} confirmed in review · {report.issues.filter(issue => !issue.confirmed).length} not reviewed yet</span></div>
+        {report.umuxLite && <div className="panel stat"><span className="kicker">UMUX-Lite</span><b className="big">{report.umuxLite.raw.mean.toFixed(1)}</b><span className="chip live">SUS-EQUIVALENT {report.umuxLite.sus.mean.toFixed(1)} · GRADE {report.umuxLite.grade}</span><span className="muted small">{interval(report.umuxLite.raw, value => value.toFixed(1))} · {report.umuxLite.raw.n} answered</span><Bar value={report.umuxLite.raw.mean / 100} low={report.umuxLite.raw.low == null ? null : report.umuxLite.raw.low / 100} high={report.umuxLite.raw.high == null ? null : report.umuxLite.raw.high / 100} label={`UMUX-Lite ${report.umuxLite.raw.mean.toFixed(1)} of 100`} /></div>}
+        <div className="panel stat"><span className="kicker">Problems</span><b className="big">{report.issues.length + report.observations.length}</b><span className="muted small">{report.observations.length > 0 && `${report.observations.length} observed by you · `}{report.issues.length} detected: {report.issues.filter(issue => issue.confirmed).length} confirmed in review, {report.issues.filter(issue => !issue.confirmed).length} not reviewed yet</span></div>
       </section>
 
       <section className="panel report-panel">
@@ -107,8 +113,27 @@ export function Report() {
         </div>
       </section>
 
+      {report.observations.length > 0 && <section className="panel report-panel">
+        <span className="kicker">Observed problems, from observer notes</span>
+        <ol className="issues">
+          {report.observations.map(group => <li key={`${group.taskId}|${group.label}`}>
+            <span className="mono">{group.taskId || '–'}</span>
+            <b>{group.tagged ? group.label : `“${group.label}”`}</b>
+            <span className="chip">{group.participants}/{report.participants.length} PARTICIPANTS</span>
+            <span className="muted small">{Object.entries(group.kinds).map(([kind, count]) => `${count} ${kind}`).join(' · ')}</span>
+            <ul className="evidence-list">{group.evidence.slice(0, 3).map((item, index) => <li key={index} className="muted small">{item.participant}: {item.kind === 'quote' ? `“${item.text}”` : item.text}</li>)}</ul>
+          </li>)}
+        </ol>
+        <p className="muted small">Notes tagged the same way (for example #returns-link) are grouped across participants; untagged notes group only when their text is identical. Only groups with a problem, error or assist note are listed.</p>
+      </section>}
+
+      {report.quotes.length > 0 && <section className="panel report-panel">
+        <span className="kicker">What participants said · {report.quotes.length}</span>
+        <ul className="quotes">{report.quotes.map((quote, index) => <li key={index}><q>{quote.text}</q> <span className="muted small">{quote.participant}{quote.taskId ? ` · ${quote.taskId}` : ''}{quote.tags.map(tag => ` #${tag}`).join('')}</span></li>)}</ul>
+      </section>}
+
       <section className="panel report-panel">
-        <span className="kicker">Problems, most severe and most common first</span>
+        <span className="kicker">{report.observations.length ? 'Detected problems, most severe and most common first' : 'Problems, most severe and most common first'}</span>
         {!report.issues.length && <p className="muted">Nothing was flagged in these sessions.</p>}
         <ol className="issues">
           {report.issues.map(issue => <li key={`${issue.taskId}|${issue.key}`} className={issue.confirmed ? 'confirmed' : ''}>
