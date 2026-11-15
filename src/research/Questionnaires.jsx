@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { ThemeToggle } from '../ThemeToggle'
-import { SEQ_ENDS, SEQ_QUESTION, SUS_SCALE, susItems } from './questionnaire'
+import { SEQ_ENDS, SEQ_QUESTION, SUS_SCALE, susItems, umuxLiteItems } from './questionnaire'
 
 // After each task: the Single Ease Question, 1–7. Optional.
 export function SeqRating({ taskNumber, outcome, onDone }) {
@@ -53,6 +53,39 @@ export function SusForm({ study, participant, onDone }) {
       <div className="actions">
         <button className="btn primary" disabled={answered < 10} onClick={() => onDone(answers)}>{answered < 10 ? `Answer all 10 to submit (${answered}/10)` : 'Submit'}</button>
         <button className="btn ghost" onClick={() => onDone(null)}>Skip the questionnaire</button>
+      </div>
+    </main>
+  </div>
+}
+
+// After the last task, as a short alternative to the SUS: UMUX-Lite, two
+// 7-point statements. Optional; counts only when both are answered.
+export function UmuxLiteForm({ study, participant, onDone }) {
+  const items = umuxLiteItems(study.kind === 'figma' ? 'prototype' : study.kind === 'observed' ? 'product' : 'website')
+  const [answers, setAnswers] = useState([null, null])
+  return <div className="screen">
+    <header className="topbar"><div className="brand"><span className="mark">◎</span><div><strong>Usability Copilot</strong><small>Study · {study.title} · participant {participant}</small></div></div><div className="actions"><ThemeToggle /></div></header>
+    <main className="sus">
+      <span className="kicker">Last step · 2 questions · optional</span>
+      <h1>How was it overall?</h1>
+      <p className="lede">Choose how much you agree, from 1 (strongly disagree) to 7 (strongly agree).</p>
+      <ol className="sus-items">
+        {items.map((text, index) => <li key={index} className="panel">
+          <fieldset>
+            <legend>{index + 1}. {text}</legend>
+            <div className="seq-scale">
+              {[1, 2, 3, 4, 5, 6, 7].map(level => <label key={level} className={answers[index] === level ? 'on' : ''}>
+                <input type="radio" name={`umux-${index}`} checked={answers[index] === level} onChange={() => setAnswers(current => current.map((answer, at) => (at === index ? level : answer)))} />
+                <span>{level}</span>
+              </label>)}
+            </div>
+            <div className="seq-ends muted small"><span>1 · Strongly disagree</span><span>7 · Strongly agree</span></div>
+          </fieldset>
+        </li>)}
+      </ol>
+      <div className="actions">
+        <button className="btn primary" disabled={answers.includes(null)} onClick={() => onDone(answers)}>{answers.includes(null) ? 'Answer both to submit' : 'Submit'}</button>
+        <button className="btn ghost" onClick={() => onDone(null)}>Skip the questions</button>
       </div>
     </main>
   </div>

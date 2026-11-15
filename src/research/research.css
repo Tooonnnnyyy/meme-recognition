@@ -315,3 +315,16 @@ h1, h2, h3 { margin: 0; letter-spacing: -.02em; text-wrap: balance; }
   .sus-scale { grid-template-columns: 1fr; }
   .seq-scale { gap: 4px; }
 }
+.banner-note { margin: 0; }
+.report-table small.warn { display: block; }
+.inline-check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+.evidence-list { list-style: none; margin: 0; padding: 0; flex-basis: 100%; display: grid; gap: 2px; }
+.notes-list { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+.notes-task ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.note { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.note .chip { font-size: 10px; padding: 1px 6px; }
+.note-problem .chip, .note-error .chip { color: var(--coral); border-color: var(--coral-line); }
+.tag { color: var(--accent-ink); font-size: 12px; }
+.seg.partial { background: var(--amber); color: var(--seg-ink); }
+.quotes { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+.quotes q { font-style: italic; }

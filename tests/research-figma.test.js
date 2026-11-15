@@ -30,7 +30,12 @@ test('the embed opens at the frame, with the client id and without hotspot hints
 })
 
 test('a study survives the participant link, and a bad one is refused', () => {
-  assert.deepEqual(decodeStudy(encodeStudy(study)), { id: 'figma-AbCdEf1234567890', ...study })
+  const decoded = decodeStudy(encodeStudy(study))
+  assert.match(decoded.id, /^figma-AbCdEf1234567890-[0-9a-z]+$/)
+  assert.deepEqual({ ...decoded, id: undefined }, { ...study, id: undefined })
+  // Another study on the same file gets another id; the same study keeps its id.
+  assert.notEqual(decodeStudy(encodeStudy({ ...study, title: 'Checkout test, round 2' })).id, decoded.id)
+  assert.equal(decodeStudy(encodeStudy(study)).id, decoded.id)
   assert.throws(() => decodeStudy('not-a-study'), /damaged/)
   assert.throws(() => encodeStudy({ ...study, figma: { ...study.figma, clientId: '' } }), /client ID/)
   assert.throws(() => encodeStudy({ ...study, tasks: [{ ...study.tasks[0], limitSec: 5 }] }), /time limit/)
