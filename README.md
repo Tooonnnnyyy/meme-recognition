@@ -230,6 +230,16 @@ docs/                P0 validation protocol, Usability Copilot and Usability Lab
                      product strategy
 ```
 
+## Design system
+
+Usability Lab and Usability Copilot follow [Orchard](https://orchard.georgia.gov/), the open-source design system of the State of Georgia (MIT License, copyright the State of Georgia). They use:
+
+- Orchard's Foundation colour palette. The dark theme is built from Orchard's deep teals.
+- Orchard's typefaces, Montserrat and Source Serif. Both are under the SIL Open Font License.
+- Orchard's button, field and header styles.
+
+Orchard's digital seal and the Georgia name are reserved for official State of Georgia sites, so this project does not use them. The font files and the licences are in `src/research/fonts/`. Gesture Meme Studio keeps its own look.
+
 ## License
 
 Code is released under the [MIT License](LICENSE). The reaction images are included as prototype assets; replace them before any commercial release.
