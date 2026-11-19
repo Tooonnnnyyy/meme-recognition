@@ -11,7 +11,7 @@
 .lab-panel { padding: 16px 18px; display: grid; gap: 12px; }
 .sticky { position: sticky; top: 16px; }
 .field { display: grid; gap: 6px; font-weight: 600; }
-.field input, .field textarea, .lab-panel select { font: inherit; font-weight: 400; color: var(--ink); background: var(--surface-2); border: 1px solid var(--dim); border-radius: 8px; padding: 9px 11px; width: 100%; box-sizing: border-box; }
+.field input, .field textarea, .lab-panel select { font: inherit; font-weight: 400; color: var(--ink); background: var(--surface-2); border: 1px solid var(--dim); border-radius: 4px; padding: 9px 11px; width: 100%; box-sizing: border-box; }
 .field input:focus-visible, .field textarea:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
 .field small { font-weight: 400; }
 .field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; align-items: end; }
@@ -63,7 +63,7 @@
 .console-panel p { margin: 0; }
 .outcome-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .note-form { display: grid; gap: 8px; }
-.note-form input { font: inherit; color: var(--ink); background: var(--surface-2); border: 1px solid var(--dim); border-radius: 8px; padding: 9px 11px; }
+.note-form input { font: inherit; color: var(--ink); background: var(--surface-2); border: 1px solid var(--dim); border-radius: 4px; padding: 9px 11px; }
 .note-form input:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
 .note-kinds { display: flex; flex-wrap: wrap; gap: 4px; }
 .kind { font: inherit; font-size: 12px; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2); cursor: pointer; }

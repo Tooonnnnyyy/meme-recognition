@@ -1,91 +1,106 @@
-/* Usability Copilot: same tokens as the meme studio (src/styles.css) so the
-   two pages read as one product. Dark is the default; light follows the
-   operating system unless the viewer pins a theme (data-theme on <html>,
-   see src/theme.js). --accent is the lime fill for buttons and bars, with
-   --on-accent text; --accent-ink is lime-coloured text, icons, borders and
-   focus rings, darkened in light so it stays readable. */
+/* Usability Lab and Usability Copilot follow Orchard, the open-source (MIT)
+   design system of the State of Georgia (orchard.georgia.gov, @georgiagov/
+   orchard): its Foundation palette, its typefaces (Montserrat for text,
+   Source Serif for headings, both under the SIL Open Font License, files and
+   licences in ./fonts) and its component styles. Orchard's digital seal and
+   Georgia's name mark official state sites, so they are not used here.
+   Light is Orchard's own palette; dark is built from its deep teals. Dark is
+   the default; light follows the operating system unless the viewer pins a
+   theme (data-theme on <html>, see src/theme.js). --accent fills buttons and
+   bars, with --on-accent text; --accent-ink is accent-coloured text, icons,
+   borders and focus rings. Gesture Meme Studio keeps its own look
+   (src/styles.css). */
+@font-face { font-family: "Montserrat"; src: url("./fonts/Montserrat-VF.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Source Serif Pro VF"; src: url("./fonts/SourceSerifVariable-Roman.woff2") format("woff2"); font-weight: 200 900; font-style: normal; font-display: swap; }
 :root {
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+  --sans: "Montserrat", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Open Sans", Corbel, Arial, sans-serif;
+  --serif: "Source Serif Pro VF", Georgia, "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", "STSong", "PingFang SC", "Microsoft YaHei", serif;
   /* task segments on the review timeline: pastel fills with dark text in both themes */
   --seg-ok: #a9d488; --seg-partial: #f1c26b; --seg-bad: #ff9f88; --seg-ink: #141414;
-  --bg: #121212; --surface: #1b1b1a; --surface-2: #232321; --surface-3: #252523; --raised: #343431; --line: #393936;
-  --ink: #f4f1ea; --ink-2: #c9c7c0; --muted: #96948e; --dim: #6b6a65;
-  --accent: #d8f36b; --accent-ink: #d8f36b; --on-accent: #202619; --accent-soft: #2a3023; --accent-line: #526228;
-  --coral: #ff7f63; --coral-line: #734334; --amber: #f1c26b; --violet: #b5b0f2; --blue: #8bb9ff;
+  --bg: #011e23; --surface: #02343d; --surface-2: #063a43; --surface-3: #0b4049; --raised: #1e4e55; --line: #2b5a61;
+  --ink: #ffffff; --ink-2: #d3dedb; --muted: #a8c3b8; --dim: #7fa094;
+  --accent: #fda578; --accent-ink: #fda578; --on-accent: #02343d; --accent-soft: #0d4750; --accent-line: #8fb3a3;
+  --coral: #ff9f88; --coral-line: #8a4a3c; --amber: #f1c26b; --violet: #c3beff; --blue: #9cc3ff;
   --shadow: rgba(0,0,0,.45);
-  /* product tokens: --chrome is the taskbar and review sidebar, --bar-edge outlines lime bars where they need it (light),
-     --card-active is the selected review card (darker than --accent-soft in dark so muted text keeps 4.5:1) */
-  --chrome: #171716; --on-coral: #1b1b1a; --coral-soft: #3a2a25; --blue-soft: #23303a; --bar-edge: transparent; --card-active: #20241b;
+  /* product tokens: --chrome is the taskbar and review sidebar, --bar-edge outlines accent bars where they need it,
+     --card-active is the selected review card, --hat the band above each header (Orchard's "hat", without its text) */
+  --chrome: #022a31; --on-coral: #02343d; --coral-soft: #3d2c2a; --blue-soft: #10394a; --bar-edge: transparent; --card-active: #104149; --hat: #fda578;
   color-scheme: dark;
 }
 /* restated so an explicit Dark choice beats a light operating system */
 :root[data-theme="dark"] {
-  --bg: #121212; --surface: #1b1b1a; --surface-2: #232321; --surface-3: #252523; --raised: #343431; --line: #393936;
-  --ink: #f4f1ea; --ink-2: #c9c7c0; --muted: #96948e; --dim: #6b6a65;
-  --accent: #d8f36b; --accent-ink: #d8f36b; --on-accent: #202619; --accent-soft: #2a3023; --accent-line: #526228;
-  --coral: #ff7f63; --coral-line: #734334; --amber: #f1c26b; --violet: #b5b0f2; --blue: #8bb9ff;
+  --bg: #011e23; --surface: #02343d; --surface-2: #063a43; --surface-3: #0b4049; --raised: #1e4e55; --line: #2b5a61;
+  --ink: #ffffff; --ink-2: #d3dedb; --muted: #a8c3b8; --dim: #7fa094;
+  --accent: #fda578; --accent-ink: #fda578; --on-accent: #02343d; --accent-soft: #0d4750; --accent-line: #8fb3a3;
+  --coral: #ff9f88; --coral-line: #8a4a3c; --amber: #f1c26b; --violet: #c3beff; --blue: #9cc3ff;
   --shadow: rgba(0,0,0,.45);
-  --chrome: #171716; --on-coral: #1b1b1a; --coral-soft: #3a2a25; --blue-soft: #23303a; --bar-edge: transparent; --card-active: #20241b;
+  --chrome: #022a31; --on-coral: #02343d; --coral-soft: #3d2c2a; --blue-soft: #10394a; --bar-edge: transparent; --card-active: #104149; --hat: #fda578;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --bg: #f3f2ee; --surface: #ffffff; --surface-2: #f7f6f2; --surface-3: #efeee9; --raised: #e4e3dd; --line: #d9d7cf;
-    --ink: #1b1b1a; --ink-2: #3d3c39; --muted: #66645e; --dim: #75736c;
-    --accent: #d8f36b; --accent-ink: #4b5f00; --on-accent: #202619; --accent-soft: #eef6cf; --accent-line: #a3b84a;
-    --coral: #c4421f; --coral-line: #eab3a3; --amber: #8f6300; --violet: #5a54c4; --blue: #2a68c2;
-    --shadow: rgba(40,40,30,.14);
-    --chrome: #f7f6f2; --on-coral: #ffffff; --coral-soft: #fef3ef; --blue-soft: #e2ecf9; --bar-edge: #a3b84a; --card-active: #eef6cf;
+    --bg: #f4f3f0; --surface: #ffffff; --surface-2: #f8f8f8; --surface-3: #f3f7f5; --raised: #e2eae4; --line: #e1ded8;
+    --ink: #031018; --ink-2: #38424b; --muted: #5a5a5a; --dim: #767676;
+    --accent: #1e4e55; --accent-ink: #1e4e55; --on-accent: #ffffff; --accent-soft: #e2eae4; --accent-line: #5f8b7a;
+    --coral: #b8341b; --coral-line: #f0b8a8; --amber: #8a5a00; --violet: #5a54c4; --blue: #2a68c2;
+    --shadow: rgba(3,16,24,.12);
+    --chrome: #f3f7f5; --on-coral: #ffffff; --coral-soft: #fff3e9; --blue-soft: #e2ecf9; --bar-edge: transparent; --card-active: #e2eae4; --hat: #02343d;
     color-scheme: light;
   }
 }
 :root[data-theme="light"] {
-  --bg: #f3f2ee; --surface: #ffffff; --surface-2: #f7f6f2; --surface-3: #efeee9; --raised: #e4e3dd; --line: #d9d7cf;
-  --ink: #1b1b1a; --ink-2: #3d3c39; --muted: #66645e; --dim: #75736c;
-  --accent: #d8f36b; --accent-ink: #4b5f00; --on-accent: #202619; --accent-soft: #eef6cf; --accent-line: #a3b84a;
-  --coral: #c4421f; --coral-line: #eab3a3; --amber: #8f6300; --violet: #5a54c4; --blue: #2a68c2;
-  --shadow: rgba(40,40,30,.14);
-  --chrome: #f7f6f2; --on-coral: #ffffff; --coral-soft: #fef3ef; --blue-soft: #e2ecf9; --bar-edge: #a3b84a; --card-active: #eef6cf;
+  --bg: #f4f3f0; --surface: #ffffff; --surface-2: #f8f8f8; --surface-3: #f3f7f5; --raised: #e2eae4; --line: #e1ded8;
+  --ink: #031018; --ink-2: #38424b; --muted: #5a5a5a; --dim: #767676;
+  --accent: #1e4e55; --accent-ink: #1e4e55; --on-accent: #ffffff; --accent-soft: #e2eae4; --accent-line: #5f8b7a;
+  --coral: #b8341b; --coral-line: #f0b8a8; --amber: #8a5a00; --violet: #5a54c4; --blue: #2a68c2;
+  --shadow: rgba(3,16,24,.12);
+  --chrome: #f3f7f5; --on-coral: #ffffff; --coral-soft: #fff3e9; --blue-soft: #e2ecf9; --bar-edge: transparent; --card-active: #e2eae4; --hat: #02343d;
   color-scheme: light;
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(--sans); letter-spacing: .01em; }
+a { color: var(--accent-ink); text-underline-offset: .18em; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
 button { font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
-h1, h2, h3 { margin: 0; letter-spacing: -.02em; text-wrap: balance; }
+h1, h2, h3 { margin: 0; font-family: var(--serif); font-weight: 600; letter-spacing: -.005em; text-wrap: balance; }
 .copilot { min-height: 100%; }
 .screen { min-height: 100vh; display: flex; flex-direction: column; }
-.kicker { font: 10px/1.4 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--accent-ink); }
+.kicker { font: 600 11px/1.4 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--accent-ink); }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .mono { font-family: var(--mono); }
 .warning { color: var(--coral); font-size: 13px; }
 .warning.banner { margin: 8px 24px 0; }
-.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 7px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 1px 2px var(--shadow); }
 .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 3px; padding: 3px 8px; font: 10px var(--mono); letter-spacing: .06em; color: var(--muted); white-space: nowrap; }
 .chip.live { color: var(--accent-ink); border-color: var(--accent-line); }
 .chip.strong { color: var(--coral); border-color: var(--coral-line); }
 .chip.borderless { border: 0; padding: 0; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; }
-.btn { border: 0; border-radius: 4px; padding: 10px 14px; font-size: 12px; font-weight: 600; }
+/* Orchard buttons: firm 4px corners, semibold, slightly spaced capitals feel without forcing upper case on translated text */
+.btn { border: 2px solid transparent; border-radius: 4px; padding: 8px 14px; font-size: 12px; font-weight: 600; letter-spacing: .04em; line-height: 1.4; }
 .btn.primary { background: var(--accent); color: var(--on-accent); }
-.btn.secondary { background: var(--raised); color: var(--ink); }
-.btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); }
+.btn.secondary { background: var(--surface); border-color: var(--accent-line); color: var(--accent-ink); }
+.btn.secondary:hover:not(:disabled) { background: var(--accent-soft); }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.12); }
+.btn.ghost { background: transparent; border: 2px solid var(--line); color: var(--ink); }
+.btn.ghost:hover:not(:disabled) { border-color: var(--accent-line); }
 .btn.danger { background: var(--coral); color: var(--on-coral); }
-.btn.small-btn { padding: 6px 10px; font-size: 11px; }
+.btn.small-btn { padding: 4px 10px; font-size: 11px; }
 .btn:focus-visible, .calibration-dot:focus-visible, .text-button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
 .text-button { border: 0; background: none; color: var(--accent-ink); font: 11px var(--mono); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.topbar { min-height: 56px; flex: none; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px max(16px, 2vw); }
+.topbar { min-height: 56px; flex: none; border-top: 4px solid var(--hat); border-bottom: 1px solid var(--line); background: var(--surface); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px max(16px, 2vw); }
 /* Header controls sit a little closer than elsewhere, so the language and
    theme switches still share one row with the navigation and file buttons
    at 1280px (see also .theme-toggle and .researcher-nav). */
 .topbar > .actions { gap: 6px; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .mark { width: 26px; height: 26px; border: 1px solid var(--accent-ink); border-radius: 50%; display: grid; place-items: center; color: var(--accent-ink); flex: none; }
-.brand strong { display: block; font-size: 13px; }
+.brand strong { display: block; font: 600 14px/1.25 var(--serif); }
 .brand small { display: block; color: var(--muted); font: 10px var(--mono); }
 .center-note { margin: auto; max-width: 560px; padding: 48px 20px; display: grid; gap: 12px; justify-items: start; }
 .center-note h2 { font-size: 30px; }
@@ -254,7 +269,7 @@ h1, h2, h3 { margin: 0; letter-spacing: -.02em; text-wrap: balance; }
    1280px, and on one row in the phone headers. Every option stays at least
    24px wide and tall. */
 .theme-toggle { display: inline-flex; flex: none; border: 1px solid var(--line); border-radius: 4px; }
-.theme-toggle button { background: transparent; border: 0; border-radius: 3px; padding: 6px; font: 10px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.theme-toggle button { background: transparent; border: 0; border-radius: 3px; padding: 6px; font: 600 10px/1.2 var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .theme-toggle button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); }
 .view-toggles { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 /* Chinese text: no negative tracking on headings, lighter tracking on small caps labels. */
@@ -300,7 +315,7 @@ h1, h2, h3 { margin: 0; letter-spacing: -.02em; text-wrap: balance; }
 .setup-form legend { font-weight: 600; padding: 0 4px; }
 .setup-form label { display: grid; gap: 6px; font-weight: 600; }
 /* field borders use --dim, at least 3:1 against the panel and page in both themes (--line is about 1.5:1) */
-.setup-form input, .setup-form textarea { font: inherit; font-weight: 400; color: var(--ink); background: var(--surface-2); border: 1px solid var(--dim); border-radius: 8px; padding: 9px 11px; }
+.setup-form input, .setup-form textarea { font: inherit; font-weight: 400; color: var(--ink); background: var(--surface-2); border: 1px solid var(--dim); border-radius: 4px; padding: 9px 11px; }
 /* placeholder hints in every form (research.html and the Lab): the browser's
    grey is under 4.5:1 on the field fill; --muted is about 5.2:1 (dark) and 5.5:1 (light) */
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
